@@ -29,14 +29,21 @@ passwordResetRouter.post(
       });
 
       if (!error && data.properties?.action_link) {
-        await sendEmail(
-          email,
-          "【HS-LMS】パスワード再設定のご案内",
-          `<p>パスワード再設定のリクエストを受け付けました。</p>
+        try {
+          await sendEmail(
+            email,
+            "【HS-LMS】パスワード再設定のご案内",
+            `<p>パスワード再設定のリクエストを受け付けました。</p>
 <p>以下のリンクから新しいパスワードを設定してください（有効期限: ${env.PASSWORD_RESET_EXPIRES_MINUTES}分）。</p>
 <p><a href="${data.properties.action_link}">パスワードを再設定する</a></p>
 <p>このリクエストに心当たりがない場合は、本メールを破棄してください。</p>`,
-        );
+          );
+        } catch (sendError) {
+          // メール送信基盤の障害（Resendのサンドボックス制限など）をクライアントに
+          // そのまま露出すると挙動の違いからメールアドレスの存在有無が漏れるため、
+          // ここで握りつぶしてサーバー側にのみ記録し、レスポンスは常に同じ成功にする。
+          console.error("パスワードリセットメールの送信に失敗しました:", sendError);
+        }
       }
     }
 

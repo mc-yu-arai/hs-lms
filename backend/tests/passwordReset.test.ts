@@ -68,6 +68,18 @@ describe("POST /v1/auth/password/reset", () => {
     );
   });
 
+  it("still returns 200 when the email provider rejects the send (e.g. Resend sandbox restriction)", async () => {
+    generateLinkMock.mockResolvedValue({ data: { properties: { action_link: "https://project.supabase.co/auth/v1/verify?token=abc&type=recovery" } }, error: null });
+    (global as any).fetch = jest.fn(async () => ({ ok: false, status: 403, text: async () => "sandbox restriction" }));
+    const user = makeUser({});
+
+    const res = await request(createApp())
+      .post("/v1/auth/password/reset")
+      .send({ email: user.email });
+
+    expect(res.status).toBe(200);
+  });
+
   it("does not attempt to send a reset link for a disabled account", async () => {
     const user = makeUser({ is_active: false });
 
