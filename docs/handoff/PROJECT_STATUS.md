@@ -32,12 +32,12 @@
 
 **指示書（`docs/prompts/01_認証ブロック_ClaudeCode指示プロンプト.md`）記載の全13エンドポイントの実装が完了。**
 
-- [x] コース管理ブロック: `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress`のマイグレーション作成（未適用）
+- [x] コース管理ブロック: `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress`のマイグレーション作成・適用済み
 - [x] コース管理ブロック: 仕様書7.2.3記載の8エンドポイント（`GET/POST/PUT/DELETE /courses`系、`enroll`、`progress`系）を実装
 - [x] コース管理ブロック: Jestテスト14件追加（フェイクDBによる統合テスト、全てパス）
 
 ## 未着手・進行中
-- [ ] コース管理・認証ブロック共通のマイグレーションSQL2本をSupabaseに実際に適用（`20260701000002_create_courses_tables.sql`が未適用。ユーザー側の作業待ち。適用後、実サーバーでの通しの動作確認が必要）
+- [ ] マイグレーション2本とも適用済み。実サーバーでの通しの動作確認（`cd backend && npm run dev`）はまだ未実施
 - [ ] フロントエンド（Next.js）は未着手
 - [ ] CSRF対策（現状JWT Bearerのみでcookieを使っていないため優先度は下げているが、フロント実装時にcookie方式を採る場合は要対応）
 - [ ] Supabaseのパスワードリカバリーリンクの有効期限設定（ダッシュボード側）が実際に1時間になっているかの確認
@@ -65,3 +65,4 @@
 - 2026-07-01: Google OAuth（PKCE）、2FAセットアップ、ユーザーAPI（プロフィール・アバター）を実装。実装済み全機能をコミット（ローカルのみ、push未実施）。テストは29件全てパス。
 - 2026-07-01: Resend実キー設定完了の連絡を受け、パスワードリセット（`POST /auth/password/reset`, `PUT /auth/password/update`）を実装。Supabase Admin APIの`generateLink(recovery)`でリンクを発行し、Resendで自前送信する方式（Supabase側のメール設定に依存しない）。これで指示書記載の全エンドポイントの実装が完了。テストは36件全てパス。
 - 2026-07-01: マイグレーション適用完了の報告を受け、Supabaseダッシュボードの手動設定手順（Google Provider/Redirect URL/avatarsバケット）を案内。続けてコース管理ブロックに着手。仕様書のDB設計に`courses`/`enrollments`しかDDLが無いため、`categories`/`chapters`/`lessons`/`lesson_progress`を独自設計してマイグレーションを提示（ユーザー確認は得られず、推奨案のまま採用）。7.2.3記載の8エンドポイントを実装し、テストを14件追加（合計50件、全てパス）。テスト機能・修了証・レポート・グループ管理は別ブロックとして明示的にスコープ外にした。
+- 2026-07-01: `20260701000002_create_courses_tables.sql`実行時に`public.set_updated_at() does not exist`エラーが発生（マイグレーション①で作成されるはずの関数が実DBに存在していなかった）。マイグレーション②を自己完結させる形に修正（`CREATE OR REPLACE FUNCTION`で再定義、`CREATE TABLE IF NOT EXISTS`化、`DROP TRIGGER IF EXISTS`追加）し、再実行して適用成功。**認証・コース管理両ブロックのDBスキーマがSupabaseに反映済み。**

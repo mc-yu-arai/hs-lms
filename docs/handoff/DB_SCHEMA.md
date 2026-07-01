@@ -118,7 +118,7 @@ CREATE TABLE public.lesson_progress (
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
 | `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | 適用済み（2026-07-01ユーザー確認） |
-| `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | **未適用** |
+| `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | 適用済み（2026-07-01。初回実行時は`public.set_updated_at()`未定義でエラーとなり、ファイル内で`CREATE OR REPLACE FUNCTION`として再定義＋`CREATE TABLE IF NOT EXISTS`化して再実行し成功） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

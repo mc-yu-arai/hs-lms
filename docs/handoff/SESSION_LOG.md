@@ -63,6 +63,21 @@
 - `tsconfig.test.json`を追加し、`npm run lint`が`tests/`配下も型チェックするよう修正（従来`tsc --noEmit`は`tsconfig.json`の`exclude`で`tests/`を対象外にしており、テストコードの型エラーを見逃す穴があったため）
 
 ### 次回セッションへの申し送り
-1. `supabase/migrations/20260701000002_create_courses_tables.sql`をSupabaseに適用してください（未適用）
+1. ~~`supabase/migrations/20260701000002_create_courses_tables.sql`をSupabaseに適用してください~~ → 適用済み（下記参照）
 2. コース管理のDBスキーマ設計（`categories`/`chapters`/`lessons`/`lesson_progress`）はユーザー未確認のまま推奨案で実装している。`docs/handoff/DB_SCHEMA.md`の該当箇所を確認し、問題があれば修正が必要
 3. 次のブロック（テスト機能／レポート／グループ管理等）に進むか、コース管理・認証ブロックのフロントエンド（Next.js）に着手するか、方針をユーザーに確認してから開始すること
+
+## 2026-07-01（マイグレーション②の適用トラブル対応）
+### 実施内容
+- ユーザーが`20260701000002_create_courses_tables.sql`をSupabaseで実行したところ `ERROR: 42883: function public.set_updated_at() does not exist` で失敗
+  - 原因: マイグレーション①(`20260701000001_create_users_table.sql`)で作成されるはずの`public.set_updated_at()`が、実際のSupabase DBには存在していなかった（経緯不明。おそらく①適用時に何らかの理由で関数定義部分だけ反映されなかった）
+- マイグレーション②を自己完結させる形に修正して再実行を依頼:
+  - ファイル冒頭に`CREATE OR REPLACE FUNCTION public.set_updated_at()`を追加（他ファイルへの依存を解消。既存でも上書きするだけで無害）
+  - 全`CREATE TABLE`を`CREATE TABLE IF NOT EXISTS`に変更（前回実行時に一部テーブルが作成されていても再実行可能にする）
+  - 各`CREATE TRIGGER`の前に`DROP TRIGGER IF EXISTS`を追加
+- ユーザーが再実行し、**成功を確認**。`docs/handoff/DB_SCHEMA.md`・`PROJECT_STATUS.md`のマイグレーション適用状況を更新
+
+### 次回セッションへの申し送り
+1. 認証・コース管理両ブロックのマイグレーションは適用済み。実サーバー（`cd backend && npm run dev`）での通し動作確認はまだ未実施のため、次回は先にそれを推奨
+2. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+3. 次のブロック（テスト機能／レポート／グループ管理等）に進むか、フロントエンド（Next.js）に着手するか、方針をユーザーに確認してから開始すること
