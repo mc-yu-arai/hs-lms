@@ -17,3 +17,12 @@ export const loginRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: { code: "too_many_requests", message: "試行回数が多すぎます。しばらく待ってから再試行してください" } },
 });
+
+// パスワードリセットのメール送信要求。大量送信・メールアドレス総当たりを防ぐため厳しめに絞る。
+export const passwordResetRateLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: "too_many_requests", message: "試行回数が多すぎます。しばらく待ってから再試行してください" } },
+});

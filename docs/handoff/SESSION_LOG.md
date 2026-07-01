@@ -33,3 +33,17 @@
 1. Supabaseダッシュボード側の手動設定がまだ：Google Provider有効化、Redirect URL登録、`avatars`ストレージバケット作成（詳細は`docs/handoff/ENV_SETUP.md`）
 2. 残る実装は`POST /auth/password/reset`, `PUT /auth/password/update`のみ（Resend実キー取得待ち）
 3. マイグレーション未適用のため、実サーバーでの動作確認はまだ全エンドポイントで完了していない（ユニットテストはモックで全件パス済み）
+
+## 2026-07-01（続き2）
+### 実施内容
+- Resend APIキーが実キーに更新された連絡を受け、残っていた最後の2エンドポイントを実装:
+  - `POST /v1/auth/password/reset`：`supabaseAdmin.auth.admin.generateLink({type: "recovery"})`でSupabase側にリンクを生成させ、メール送信自体はSupabaseに任せずバックエンドから直接Resend API(`backend/src/lib/resend.ts`)で送信。メールアドレスの存在有無を漏らさないよう、ユーザーが見つからない/無効化されている場合も常に同じ成功レスポンスを返す
+  - `PUT /v1/auth/password/update`：リセットメール内リンクのアクセストークン(`token`)を使い、GoTrue REST API経由でパスワードを更新（`backend/src/lib/gotrueRest.ts`に`requestEmailChange`と共通化した`patchAuthUser`ヘルパーを追加）。パスワードポリシー（8文字以上・英字/数字/記号混在）をzodで検証
+  - IPベースのレート制限(`passwordResetRateLimiter`、15分/5回)を追加し、リセットメールの大量送信・総当たりを抑止
+- Jestテストを36件に拡充（全てパス）。`tsc --noEmit`もクリーン
+- **これで指示書（`docs/prompts/01_認証ブロック_ClaudeCode指示プロンプト.md`）記載の全13エンドポイントの実装が完了。**
+
+### 次回セッションへの申し送り（最新）
+1. `docs/handoff/PROJECT_STATUS.md`と`ENV_SETUP.md`に記載の「外部サービス側で追加設定が必要な項目」（Google Provider有効化、Redirect URL登録、`avatars`バケット作成、リカバリーリンク有効期限確認）をSupabaseダッシュボードで実施してください
+2. マイグレーション(`supabase/migrations/20260701000001_create_users_table.sql`)を適用後、実サーバー（`cd backend && npm run dev`）で一通り手動確認することを推奨（ユニットテストは全てモックのため、実際のSupabase/Resend連携はまだ未検証）
+3. 認証ブロックのバックエンドAPIは完了。次のブロック（コース管理等）に進むか、このブロックのフロントエンド（Next.js）に着手するか、方針をユーザーに確認してから次の作業を開始すること

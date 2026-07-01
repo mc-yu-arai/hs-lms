@@ -7,6 +7,7 @@ import { authRouter } from "./routes/auth";
 import { oauthRouter } from "./routes/oauth";
 import { twoFactorRouter } from "./routes/twoFactor";
 import { usersRouter } from "./routes/users";
+import { passwordResetRouter } from "./routes/passwordReset";
 import { apiRateLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
@@ -29,6 +30,7 @@ export function createApp() {
   app.use("/v1/auth", authRouter);
   app.use("/v1/auth", oauthRouter);
   app.use("/v1/auth", twoFactorRouter);
+  app.use("/v1/auth", passwordResetRouter);
   app.use("/v1/users", usersRouter);
 
   app.use(notFoundHandler);

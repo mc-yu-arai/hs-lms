@@ -18,6 +18,8 @@
 | GET | /v1/users/me | Bearer要 | プロフィール取得（avatarUrl含む） |
 | PUT | /v1/users/me | Bearer要 | プロフィール更新。email変更時は即時反映せず確認メール送信のみ |
 | POST | /v1/users/me/avatar | Bearer要 | アイコン画像アップロード（JPEG/PNG、最大2MB、Supabase Storage） |
+| POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
+| PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 
 ### リクエスト/レスポンス例
 
@@ -67,15 +69,27 @@
 **POST /v1/users/me/avatar**
 `multipart/form-data`、フィールド名 `avatar`。レスポンス: `{ "avatarUrl": "https://.../avatars/<id>/avatar.png" }`
 
+**POST /v1/auth/password/reset**
+```json
+// request
+{ "email": "user@example.com" }
+// response（常に同じメッセージ。該当ユーザーが存在してactiveな場合のみ実際にメール送信）
+{ "message": "ご入力のメールアドレス宛にパスワード再設定のご案内を送信しました（該当するアカウントが存在する場合）" }
+```
+
+**PUT /v1/auth/password/update**
+```json
+// request（tokenはリセットメール内リンク＝Supabase recovery action_linkから得られるアクセストークン）
+{ "token": "...", "newPassword": "NewPassw0rd!" }
+// response
+{ "message": "パスワードを更新しました" }
+```
+
 **エラーレスポンス共通形式**
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `too_many_requests`(429)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `too_many_requests`(429)
 
 ## 未実装
-
-| メソッド | パス | 認証要否 | 備考 |
-|---|---|---|---|
-| POST | /auth/password/reset | 不要 | **Resend APIキー未設定のため着手待ち** |
-| PUT | /auth/password/update | リセットトークン要 | 同上 |
+指示書記載のエンドポイントはすべて実装済み。
