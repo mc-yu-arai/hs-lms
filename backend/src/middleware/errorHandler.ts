@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
+import { MulterError } from "multer";
 
 export class HttpError extends Error {
   status: number;
@@ -15,6 +16,11 @@ export class HttpError extends Error {
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: { code: err.code, message: err.message } });
+  }
+
+  if (err instanceof MulterError) {
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    return res.status(status).json({ error: { code: "invalid_file", message: "画像ファイルが不正です（JPEG/PNG、最大2MB）" } });
   }
 
   if (err instanceof ZodError) {

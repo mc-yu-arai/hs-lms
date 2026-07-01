@@ -65,3 +65,53 @@ export async function touchLastLogin(userId: string) {
     .eq("id", userId);
   if (error) throw error;
 }
+
+// 2FAセットアップの1段階目：QRコード提示用にシークレットを保存する（この時点ではtotp_enabledはfalseのまま）
+export async function saveTotpSecret(userId: string, encryptedSecret: string) {
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ totp_secret: encryptedSecret, totp_enabled: false })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+// 2FAセットアップの2段階目：TOTPコード検証後に有効化する
+export async function enableTotp(userId: string) {
+  const { error } = await supabaseAdmin.from("users").update({ totp_enabled: true }).eq("id", userId);
+  if (error) throw error;
+}
+
+export interface UserProfileUpdate {
+  last_name?: string;
+  first_name?: string;
+  department?: string | null;
+}
+
+export async function updateProfile(userId: string, patch: UserProfileUpdate) {
+  const { data, error } = await supabaseAdmin.from("users").update(patch).eq("id", userId).select("*").maybeSingle();
+  if (error) throw error;
+  return data as AppUser | null;
+}
+
+// Supabase Auth側のメール確認リンクがクリックされてauth.users.emailが変わった際に、
+// public.users.emailを追いつかせる（Webhookを構築しない簡易な同期方式）
+export async function syncEmail(userId: string, newEmail: string) {
+  const { error } = await supabaseAdmin.from("users").update({ email: newEmail }).eq("id", userId);
+  if (error) throw error;
+}
+
+export function toPublicProfile(user: AppUser, avatarUrl: string | null = null) {
+  return {
+    id: user.id,
+    email: user.email,
+    lastName: user.last_name,
+    firstName: user.first_name,
+    role: user.role,
+    department: user.department,
+    hireDate: user.hire_date,
+    isActive: user.is_active,
+    lastLoginAt: user.last_login_at,
+    totpEnabled: user.totp_enabled,
+    avatarUrl,
+  };
+}

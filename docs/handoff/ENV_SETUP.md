@@ -19,5 +19,10 @@
 
 ## 外部サービス設定状況
 - Supabase: プロジェクト作成済み・接続情報取得済み。`public.users`マイグレーションは未適用（`supabase/migrations/20260701000001_create_users_table.sql`をSupabase SQL Editorまたは`supabase db push`で実行してください）
-- Google OAuth: クライアントID/シークレット取得済み。Supabase Auth側のGoogle Provider設定（Authorized redirect URI等）はまだダッシュボードで未確認 — OAuth実装着手時に確認します
+- Google OAuth: クライアントID/シークレットは`.env`に設定済みだが、**Supabaseダッシュボード側でのGoogle Provider有効化・Redirect URL登録がまだ**（下記参照）
 - Resend: 未接続
+
+## Supabaseダッシュボードで手動設定が必要な項目
+1. Authentication → Providers → Google を有効化し、`.env`と同じClient ID/Secretを登録
+2. Authentication → URL Configuration → Redirect URLs に `http://localhost:3001/v1/auth/oauth/google/callback` を追加（本番デプロイ後は本番のAPI_BASE_URLも追加）
+3. Storage → 新規バケット `avatars` を作成（Public bucketとして。`POST /users/me/avatar` の保存先）
