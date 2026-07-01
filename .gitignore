@@ -1,0 +1,18 @@
+# 環境変数（秘密情報を含むため絶対にコミットしない）
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# 個人メモ（機密情報を含む可能性があるため）
+memo/
+
+# OS
+.DS_Store
+Thumbs.db

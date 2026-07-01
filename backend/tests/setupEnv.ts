@@ -1,0 +1,9 @@
+process.env.SUPABASE_URL = "https://test-project.supabase.co";
+process.env.SUPABASE_PUBLISHABLE_KEY = "test-publishable-key";
+process.env.SUPABASE_SECRET_KEY = "test-secret-key";
+process.env.JWT_SECRET = "test-jwt-secret-of-at-least-32-characters";
+process.env.API_BASE_URL = "http://localhost:3001";
+process.env.FRONTEND_URL = "http://localhost:3000";
+process.env.NODE_ENV = "test";
+process.env.LOGIN_MAX_ATTEMPTS = "5";
+process.env.LOGIN_LOCK_MINUTES = "15";
