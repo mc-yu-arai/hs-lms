@@ -32,10 +32,98 @@ CREATE TABLE public.users (
 - `refresh_tokens`（user_id, token_hash, expires_at, revoked_at）
 - `password_reset_tokens`（user_id, token_hash, expires_at, used_at）
 
+## コース管理ブロックのテーブル
+仕様書6.2にはDDLが`courses`(6.2.2)と`enrollments`(6.2.3)にしかなく、ER概要(6.1)や機能要件(3.2.2/4.3.1)に登場する`Chapter`/`Lesson`/`Progress`/`categories`はテーブル定義自体が存在しなかったため、以下の方針で設計した（ユーザー確認は得られなかったため推奨案のまま採用。要望があれば変更可）。
+
+```sql
+CREATE TABLE public.categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- 6.2.2準拠 + updated_at/thumbnail_url/prerequisite_course_idを追加(4.3.1の機能要件のみに存在)
+CREATE TABLE public.courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title VARCHAR(200) NOT NULL,
+  description TEXT,
+  category_id UUID REFERENCES public.categories(id),
+  level VARCHAR(20) NOT NULL CHECK (level IN ('beginner', 'intermediate', 'advanced')),
+  duration_minutes INTEGER,
+  pass_score INTEGER DEFAULT 70,
+  is_published BOOLEAN DEFAULT false,
+  is_mandatory BOOLEAN DEFAULT false,
+  thumbnail_url VARCHAR(500),
+  prerequisite_course_id UUID REFERENCES public.courses(id),
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- 章（仕様書にDDLなし。ER概要のChapterに対応）
+CREATE TABLE public.chapters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  title VARCHAR(200) NOT NULL,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- レッスン（仕様書にDDLなし。content_typeはvideo/pdf/text/scormのみ対応。SCORM実行エンジン・インタラクティブスライドはスコープ外）
+CREATE TABLE public.lessons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  chapter_id UUID NOT NULL REFERENCES public.chapters(id) ON DELETE CASCADE,
+  title VARCHAR(200) NOT NULL,
+  content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('video', 'pdf', 'text', 'scorm')),
+  content_url VARCHAR(500),
+  content_body TEXT,
+  duration_seconds INTEGER,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- 6.2.3準拠 + updated_at/UNIQUE(user_id, course_id)を追加(二重受講登録の防止)
+CREATE TABLE public.enrollments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id),
+  course_id UUID NOT NULL REFERENCES public.courses(id),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('enrolled', 'in_progress', 'completed', 'expired')),
+  progress_rate DECIMAL(5,2) DEFAULT 0,
+  total_study_time INTEGER DEFAULT 0,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  due_date DATE,
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  UNIQUE (user_id, course_id)
+);
+
+-- レッスン単位の進捗（仕様書にDDLなし。ER概要のProgressに対応）
+CREATE TABLE public.lesson_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  enrollment_id UUID NOT NULL REFERENCES public.enrollments(id) ON DELETE CASCADE,
+  lesson_id UUID NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
+  is_completed BOOLEAN NOT NULL DEFAULT false,
+  progress_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+  last_position_seconds INTEGER,
+  completed_at TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  UNIQUE (enrollment_id, lesson_id)
+);
+```
+
+**「完了(completed)」の判定について**: 現時点では「コース内の全レッスンが完了」のみでenrollmentを`completed`にしている。仕様書3.2.4は本来「全レッスン完了 かつ 修了テスト合格」を要求しているが、テスト機能(Quiz/Question/Answer)は別ブロックのため未実装。テスト機能ブロック着手時に、この判定ロジック(`courseRepository.ts`の`recalculateEnrollmentProgress`)を「テスト合格」も条件に含めるよう拡張する必要がある。
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
-| `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | **未適用**（Supabase SQL Editor または `supabase db push` で実行が必要） |
+| `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | 適用済み（2026-07-01ユーザー確認） |
+| `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | **未適用** |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）
+- `courses.category_id` → `categories.id`
+- `courses.prerequisite_course_id` → `courses.id`（自己参照。前提コース）
+- `chapters.course_id` → `courses.id`、`lessons.chapter_id` → `chapters.id`
+- `enrollments.user_id` → `users.id`、`enrollments.course_id` → `courses.id`（UNIQUE制約で1ユーザー1コースにつき1レコード）
+- `lesson_progress.enrollment_id` → `enrollments.id`、`lesson_progress.lesson_id` → `lessons.id`（UNIQUE制約で1受講あたり1レッスンにつき1レコード）

@@ -47,3 +47,22 @@
 1. `docs/handoff/PROJECT_STATUS.md`と`ENV_SETUP.md`に記載の「外部サービス側で追加設定が必要な項目」（Google Provider有効化、Redirect URL登録、`avatars`バケット作成、リカバリーリンク有効期限確認）をSupabaseダッシュボードで実施してください
 2. マイグレーション(`supabase/migrations/20260701000001_create_users_table.sql`)を適用後、実サーバー（`cd backend && npm run dev`）で一通り手動確認することを推奨（ユニットテストは全てモックのため、実際のSupabase/Resend連携はまだ未検証）
 3. 認証ブロックのバックエンドAPIは完了。次のブロック（コース管理等）に進むか、このブロックのフロントエンド（Next.js）に着手するか、方針をユーザーに確認してから次の作業を開始すること
+
+## 2026-07-01（コース管理ブロック着手）
+### 実施内容
+- マイグレーション適用完了の報告を受け、残っていたSupabaseダッシュボード手動設定（Google Provider有効化・Redirect URL登録・avatarsバケット作成）の手順を案内
+- ユーザーからコース管理ブロックへの着手指示を受け、`docs/handoff/PROJECT_STATUS.md`・`SESSION_LOG.md`を読み込んで現状確認後、仕様書本体を再確認
+  - `00_共通運用ルール`が「認証、コース管理、テスト機能、通知、レポート」とブロックを明示的に分けていることを踏まえ、今回は仕様書7.2.3「コースAPI」の8エンドポイントのみを対象と判断（テスト機能・修了証・レポート・グループ管理・通知は明示的に対象外）
+  - 仕様書6.2には`courses`(6.2.2)と`enrollments`(6.2.3)しかDDLが無く、ER概要(6.1)・機能要件(3.2.2/4.3.1)にのみ登場する`Chapter`/`Lesson`/`Progress`/`categories`は未定義だったため、独自設計を提案・提示（`supabase/migrations/20260701000002_create_courses_tables.sql`、**未適用**）
+  - スキーマ確認とコース削除方針についてユーザーに質問したが応答が得られなかったため、推奨案（受講履歴があるコースは削除拒否／SCORM実行・グループ限定公開・公開期間はスコープ外）のまま実装を継続
+- `backend/src/services/courseRepository.ts`（DBアクセス層）と`backend/src/routes/courses.ts`（8エンドポイント）を実装
+  - 章・レッスンは`POST/PUT /courses`のリクエストボディにネストして受け取り、更新時は全置換方式
+  - 未受講者にはレッスンのコンテンツ本体（動画URL等）を隠し、カリキュラム構成のみ見せる
+  - コース完了判定は現状「全レッスン完了」のみ（修了テスト合格は未実装のテスト機能ブロック後に拡張予定）
+- テスト用の汎用フェイクSupabaseクライアント（`backend/tests/helpers/fakeSupabase.ts`）を新規作成し、コース管理の統合テスト14件を追加（合計50件、全てパス）
+- `tsconfig.test.json`を追加し、`npm run lint`が`tests/`配下も型チェックするよう修正（従来`tsc --noEmit`は`tsconfig.json`の`exclude`で`tests/`を対象外にしており、テストコードの型エラーを見逃す穴があったため）
+
+### 次回セッションへの申し送り
+1. `supabase/migrations/20260701000002_create_courses_tables.sql`をSupabaseに適用してください（未適用）
+2. コース管理のDBスキーマ設計（`categories`/`chapters`/`lessons`/`lesson_progress`）はユーザー未確認のまま推奨案で実装している。`docs/handoff/DB_SCHEMA.md`の該当箇所を確認し、問題があれば修正が必要
+3. 次のブロック（テスト機能／レポート／グループ管理等）に進むか、コース管理・認証ブロックのフロントエンド（Next.js）に着手するか、方針をユーザーに確認してから開始すること
