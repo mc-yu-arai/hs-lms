@@ -27,3 +27,23 @@ export interface Course {
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
 }
+
+export type EnrollmentStatus = "enrolled" | "in_progress" | "completed" | "expired";
+
+export interface EnrollmentSummary {
+  id: string;
+  status: EnrollmentStatus;
+  progressRate: number;
+  totalStudyTime: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  dueDate: string | null;
+  course: {
+    id: string;
+    title: string;
+    level: "beginner" | "intermediate" | "advanced";
+    durationMinutes: number | null;
+    isMandatory: boolean;
+    thumbnailUrl: string | null;
+  };
+}

@@ -273,6 +273,34 @@ export async function createEnrollment(userId: string, courseId: string): Promis
   return data as Enrollment;
 }
 
+export interface EnrollmentWithCourse {
+  enrollment: Enrollment;
+  course: Course;
+}
+
+// ダッシュボードの「受講中コース一覧」用。supabase-jsの埋め込みselect構文（courses(*)）は
+// テスト用のフェイクDBが対応していないため、2回のクエリで取得してアプリ側で結合する。
+export async function listEnrollmentsForUser(userId: string): Promise<EnrollmentWithCourse[]> {
+  const { data: enrollments, error } = await supabaseAdmin
+    .from("enrollments")
+    .select("*")
+    .eq("user_id", userId)
+    .order("started_at", { ascending: false });
+  if (error) throw error;
+  if (!enrollments || enrollments.length === 0) return [];
+
+  const courseIds = [...new Set(enrollments.map((e) => e.course_id as string))];
+  const { data: courses, error: courseError } = await supabaseAdmin.from("courses").select("*").in("id", courseIds);
+  if (courseError) throw courseError;
+
+  const courseById = new Map((courses ?? []).map((c) => [c.id as string, c as Course]));
+
+  return (enrollments as Enrollment[]).flatMap((enrollment) => {
+    const course = courseById.get(enrollment.course_id);
+    return course ? [{ enrollment, course }] : [];
+  });
+}
+
 export async function getLessonProgressList(enrollmentId: string): Promise<LessonProgress[]> {
   const { data, error } = await supabaseAdmin.from("lesson_progress").select("*").eq("enrollment_id", enrollmentId);
   if (error) throw error;

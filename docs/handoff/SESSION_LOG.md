@@ -125,8 +125,27 @@
 - 動作確認用に作成した一時スクリプト（`backend/scripts/diag-*.js`, `backend/scripts/setup-admin-2fa.js`）はすべて確認後に削除済み（`admin-test@example.com` / `AdminPass1!`というSupabase上のテストユーザー自体は残っている。2FA有効・secretは`backend/scripts/setup-admin-2fa.js`実行時のログ参照。必要なら削除して再作成可）
 
 ### 次回セッションへの申し送り
-1. ダッシュボードの「受講中コース一覧」表示には、バックエンドに「自分のenrollments一覧」を返す新規エンドポイントが必要（現行の7.2.3の8エンドポイントには存在しない）。追加するかどうかユーザーに確認してから着手すること
+1. ~~ダッシュボードの「受講中コース一覧」表示には、バックエンドに「自分のenrollments一覧」を返す新規エンドポイントが必要~~ → 次のセッションで`GET /v1/users/me/enrollments`を追加し解消（下記参照）
 2. パスワードリセット画面、プロフィール編集画面、アバターアップロードUIはまだ未実装
 3. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
 4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+5. 次に進める作業（残り画面の実装、次のブロック着手等）の方針をユーザーに確認してから開始すること
+
+## 2026-07-02（受講一覧API追加とダッシュボード接続）
+### 実施内容
+- ユーザーから、バックエンドに`GET /v1/users/me/enrollments`（自分の受講中コース一覧。進捗率・ステータス・コース基本情報を含む）を追加し、ダッシュボードの「受講中コース一覧」と接続する指示を受ける
+- `backend/src/services/courseRepository.ts`に`listEnrollmentsForUser`を追加。enrollmentsとcoursesを2回のクエリで取得しアプリ側で結合する設計（supabase-jsの埋め込みselect構文`courses(*)`はテスト用フェイクDBが対応していないため採用しなかった）
+- `backend/src/routes/users.ts`に`GET /me/enrollments`を追加（`requireAuth`のみ、ロール制限なし。自分のデータのみ返す）
+- `tests/enrollments.test.ts`を追加（未認証401、空配列、コース情報の結合、削除済みコースのenrollmentを除外、の4件）。テストは合計55件全てパス
+- `frontend/src/app/dashboard/page.tsx`に「受講中コース一覧」セクションを新設し、上記APIに接続（ステータスバッジ・進捗バー表示）。既存の「コースカタログ」セクションはそのまま残し、両方を表示する構成にした
+- 実データでの通し確認: バックエンドサーバーを再起動しつつ（PowerShellの変数がツール呼び出しをまたいで保持されないこと、ログイン試行のレート制限に複数回引っかかったことに起因）、admin-testユーザーでコースを新規作成（`Onboarding Course`、公開設定）→ learnerユーザー（test@example.com）で受講登録 → レッスン進捗を85%に更新 → `GET /v1/users/me/enrollments`が正しく進捗率100%・ステータス`completed`・コース情報を返すことを確認 → 同じ内容がダッシュボードUI（進捗バー100%、「修了」バッジ）に反映されることをプレビューブラウザで確認
+  - なお、動作確認中に日本語文字列を含むJSONボディをPowerShellの`Invoke-RestMethod`で送信すると文字化けする現象を確認した（`ConvertTo-Json`/Windows PowerShell 5.1のエンコーディングの問題で、アプリのバグではない）。実データ作成時は英語のタイトルに切り替えて回避した
+- 動作確認用に作成した`Onboarding Course`（実Supabase DB上）は削除せずそのまま残している（デモ・継続確認用）
+- 検証用に起動したバックエンドの`npm run dev`プロセスは動作確認完了後もそのまま起動状態にしてある（ユーザーが引き続き手動確認できるように）
+
+### 次回セッションへの申し送り
+1. パスワードリセット画面、プロフィール編集画面、アバターアップロードUIはまだ未実装
+2. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
+3. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+4. Supabase上に残っているテストデータ: `test@example.com`/`TestPass1!`（learner）、`admin-test@example.com`/`AdminPass1!`（admin, 2FA有効・secret: `HJOHOG32BJNVY4AI`）、コース「Onboarding Course」＋その受講データ。本番相当のデータで確認したい場合は事前に削除・整理すること
 5. 次に進める作業（残り画面の実装、次のブロック着手等）の方針をユーザーに確認してから開始すること

@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/requireAuth";
 import { updateProfile, toPublicProfile, type UserProfileUpdate } from "../services/userRepository";
 import { requestEmailChange } from "../lib/gotrueRest";
 import { uploadAvatar, findAvatarUrl, mimeToExtension } from "../services/avatarStorage";
+import { listEnrollmentsForUser } from "../services/courseRepository";
 
 export const usersRouter = Router();
 
@@ -56,6 +57,34 @@ usersRouter.put(
       user: toPublicProfile(updated ?? user, avatarUrl),
       emailChangeRequested,
     });
+  }),
+);
+
+usersRouter.get(
+  "/me/enrollments",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const rows = await listEnrollmentsForUser(req.appUser!.id);
+
+    const enrollments = rows.map(({ enrollment, course }) => ({
+      id: enrollment.id,
+      status: enrollment.status,
+      progressRate: enrollment.progress_rate,
+      totalStudyTime: enrollment.total_study_time,
+      startedAt: enrollment.started_at,
+      completedAt: enrollment.completed_at,
+      dueDate: enrollment.due_date,
+      course: {
+        id: course.id,
+        title: course.title,
+        level: course.level,
+        durationMinutes: course.duration_minutes,
+        isMandatory: course.is_mandatory,
+        thumbnailUrl: course.thumbnail_url,
+      },
+    }));
+
+    return res.status(200).json({ enrollments });
   }),
 );
 

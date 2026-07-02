@@ -18,6 +18,7 @@
 | GET | /v1/users/me | Bearer要 | プロフィール取得（avatarUrl含む） |
 | PUT | /v1/users/me | Bearer要 | プロフィール更新。email変更時は即時反映せず確認メール送信のみ |
 | POST | /v1/users/me/avatar | Bearer要 | アイコン画像アップロード（JPEG/PNG、最大2MB、Supabase Storage） |
+| GET | /v1/users/me/enrollments | Bearer要 | 自分の受講中コース一覧（進捗率・ステータス・コース基本情報を含む）。仕様書7.2.3には無いが、ダッシュボードの「受講中コース一覧」表示のために追加（コース管理ブロックの拡張） |
 | POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
 | PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 | GET | /v1/courses | Bearer要 | コース一覧。learnerは`isPublished:true`のみ、admin/super_adminは全件。`keyword`/`categoryId`/`level`でフィルタ可 |
@@ -76,6 +77,17 @@
 
 **POST /v1/users/me/avatar**
 `multipart/form-data`、フィールド名 `avatar`。レスポンス: `{ "avatarUrl": "https://.../avatars/<id>/avatar.png" }`
+
+**GET /v1/users/me/enrollments**
+```json
+{ "enrollments": [
+  { "id": "...", "status": "in_progress", "progressRate": 42.5, "totalStudyTime": 1200,
+    "startedAt": "...", "completedAt": null, "dueDate": null,
+    "course": { "id": "...", "title": "新人研修", "level": "beginner",
+      "durationMinutes": 90, "isMandatory": true, "thumbnailUrl": null } }
+] }
+```
+`started_at`降順。コースが削除済みの場合はそのenrollmentを結果から除外する。
 
 **POST /v1/auth/password/reset**
 ```json
