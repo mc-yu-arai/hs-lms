@@ -144,8 +144,42 @@
 - 検証用に起動したバックエンドの`npm run dev`プロセスは動作確認完了後もそのまま起動状態にしてある（ユーザーが引き続き手動確認できるように）
 
 ### 次回セッションへの申し送り
-1. パスワードリセット画面、プロフィール編集画面、アバターアップロードUIはまだ未実装
+1. ~~パスワードリセット画面、プロフィール編集画面、アバターアップロードUIはまだ未実装~~ → 次のセッションで実装（下記参照）
 2. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
 3. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
 4. Supabase上に残っているテストデータ: `test@example.com`/`TestPass1!`（learner）、`admin-test@example.com`/`AdminPass1!`（admin, 2FA有効・secret: `HJOHOG32BJNVY4AI`）、コース「Onboarding Course」＋その受講データ。本番相当のデータで確認したい場合は事前に削除・整理すること
 5. 次に進める作業（残り画面の実装、次のブロック着手等）の方針をユーザーに確認してから開始すること
+
+## 2026-07-02（残り3画面: パスワードリセット・プロフィール編集）
+### 実施内容
+- ユーザーから、パスワードリセット申請画面・パスワード再設定画面・プロフィール編集画面（氏名・部署・アイコン画像アップロード）の実装指示を受ける
+- `frontend/src/lib/api.ts`の`apiFetch`をFormData対応に拡張（アバターアップロード用。FormDataの場合はContent-Typeを上書きしない）
+- `frontend/src/lib/auth-context.tsx`に`refreshUser`を追加（`authFetch`で`/users/me`を再取得し、キャッシュ済みセッションの`user`だけを更新する。プロフィール更新後にヘッダーの表示名等を即座に反映させるために使用）
+- 画面実装:
+  - `/forgot-password`: メールアドレス入力 → `POST /auth/password/reset` → 常に同じ成功メッセージを表示（メール存在有無を漏らさない設計に合わせた）。ログイン画面に「パスワードをお忘れの方」リンクを追加
+  - `/reset-password`: リセットメール内リンクの遷移先。`window.location.hash`から`access_token`を読み取り、`PUT /auth/password/update`に`token`として渡す。パスワード確認入力の一致チェックをクライアント側でも実施
+  - `/profile`: `GET /v1/users/me`相当のデータ（AuthContextの`user`）を初期値にフォーム表示。保存は`PUT /users/me`、アバターは`POST /users/me/avatar`（multipart/form-data）。ダッシュボードのヘッダーに「プロフィール編集」リンクを追加
+  - メールアドレス変更UIは今回のスコープ指示に含まれなかったため実装していない（バックエンドAPIは対応済み）
+- **実装中に見つけた問題**: `/profile`で「userロード後にuseEffectでフォームの初期値をsetStateする」実装がReact 19の新ESLintルール（`react-hooks/set-state-in-effect`）に抵触。今回は`ProfileForm`という子コンポーネントに分離し、`user`が読み込まれてから`key={user.id}`付きでマウントし、propsから直接`useState`の初期値を取る設計に変更して対応（effによる同期を使わない、より正しいパターン）
+- 実データでの通し確認:
+  - `/forgot-password`でtest@example.com宛にリクエスト送信 → 成功メッセージ確認
+  - バックエンドのAdmin APIで実際のSupabase recoveryリンクを生成し、リダイレクト（303）先のLocationヘッダーからaccess_token付きURLを取得 → ブラウザで`/reset-password#access_token=...`に直接遷移 → 新パスワード`TestPass2!`を設定 → 成功メッセージ確認 → 新パスワードで実際に`POST /auth/login`が通ることを確認（**test@example.comのパスワードは`TestPass2!`に変更済み**）
+  - `/profile`で所属部門を「営業部」に変更して保存 → 成功メッセージ確認 → ダッシュボードに戻り「所属: 営業部」が反映されていることを確認
+  - アバターアップロードのUI導線（ファイル選択→アップロード→プレビュー更新）はコードレビューと型チェックで確認したが、実際の画像ファイルでのアップロード自体は未実施（Supabase Storageの`avatars`バケット作成がまだの可能性があるため）
+- 動作確認用の一時スクリプト（`backend/scripts/gen-recovery-link.js`）は確認後に削除済み
+- 全55件のバックエンドテストが引き続きパス、フロントエンドの`tsc`/ESLint/`next build`もクリーン
+
+### 次のブロックについての推奨
+テスト機能ブロックとコース受講画面のどちらを先に実装すべきか問われ、**コース受講画面を先に実装することを推奨**した。理由:
+- コース管理ブロックのバックエンドAPI（`GET /courses/:id`, `POST /courses/:id/enroll`, `PUT .../lessons/:lessonId/progress`）は実装・テスト済みだが、フロントエンドから使う画面がまだ無く「宙に浮いている」状態
+- コース受講画面は新規バックエンド設計が不要で、既存の動作確認済みAPIを繋ぐだけなので、相対的に小さく速い増分で認証・コース管理ブロックを機能的に完結できる
+- テスト機能ブロックは新規DBスキーマ設計（Quiz/Question/Answer、出題形式ごとのUI等）が必要な大きめの新規ブロックで、着手すると仕様確認事項が多く出ると想定される
+- コース完了判定（現状「全レッスン完了」のみ）を「修了テスト合格」込みに拡張するのは、コース受講の一連の流れが固まってからの方が手戻りが少ない
+
+### 次回セッションへの申し送り
+1. コース受講画面（コース詳細・カリキュラム表示・レッスン視聴・進捗更新UI・受講開始ボタン）が未着手。次はここから着手するようユーザーに推奨済み
+2. アバターアップロードの実ファイルでの動作確認はまだ。Supabase Storageの`avatars`バケットが作成済みか要確認
+3. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
+4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+5. Supabase上のテストデータ更新: `test@example.com`のパスワードは`TestPass2!`（旧`TestPass1!`から変更済み）。所属部門は「営業部」に変更済み
+6. 次に進める作業の方針をユーザーに確認してから開始すること

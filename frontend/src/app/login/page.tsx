@@ -103,6 +103,12 @@ function LoginForm() {
           >
             {isSubmitting ? "ログイン中..." : "ログイン"}
           </button>
+
+          <p className="text-center text-sm">
+            <a href="/forgot-password" className="text-blue-600 hover:underline">
+              パスワードをお忘れの方
+            </a>
+          </p>
         </form>
 
         <div className="my-6 flex items-center gap-3">

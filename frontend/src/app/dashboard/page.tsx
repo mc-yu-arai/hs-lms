@@ -77,6 +77,9 @@ export default function DashboardPage() {
             <span className="text-sm text-gray-600">
               {user.lastName} {user.firstName} さん
             </span>
+            <a href="/profile" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+              プロフィール編集
+            </a>
             <button onClick={() => logout()} className="text-sm text-gray-500 transition-colors hover:text-gray-700">
               ログアウト
             </button>

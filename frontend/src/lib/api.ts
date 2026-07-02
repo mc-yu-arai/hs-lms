@@ -23,13 +23,15 @@ interface ApiErrorBody {
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const { body, accessToken, headers, ...rest } = options;
   const finalHeaders = new Headers(headers);
-  if (body !== undefined) finalHeaders.set("Content-Type", "application/json");
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  // FormData（アバターアップロード）はブラウザがboundary付きContent-Typeを自動設定するため上書きしない
+  if (body !== undefined && !isFormData) finalHeaders.set("Content-Type", "application/json");
   if (accessToken) finalHeaders.set("Authorization", `Bearer ${accessToken}`);
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: finalHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   const isJson = res.headers.get("content-type")?.includes("application/json") ?? false;

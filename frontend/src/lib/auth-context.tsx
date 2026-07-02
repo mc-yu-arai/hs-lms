@@ -22,6 +22,7 @@ interface AuthContextValue {
   loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   authFetch: <T>(path: string, options?: ApiFetchOptions) => Promise<T>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -129,6 +130,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [session, persist, logout],
   );
 
+  const refreshUser = useCallback(async () => {
+    if (!session) return;
+    const { user } = await authFetch<{ user: AuthUser }>("/v1/users/me");
+    persist({ ...session, user });
+  }, [session, authFetch, persist]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user: session?.user ?? null,
@@ -137,8 +144,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loginWithTokens,
       logout,
       authFetch,
+      refreshUser,
     }),
-    [session, isLoading, setSession, loginWithTokens, logout, authFetch],
+    [session, isLoading, setSession, loginWithTokens, logout, authFetch, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
