@@ -18,7 +18,7 @@
 - なし（主要なクレデンシャルはすべて設定済み）
 
 ## 外部サービス設定状況
-- Supabase: プロジェクト作成済み・接続情報取得済み。`public.users`マイグレーションは未適用（`supabase/migrations/20260701000001_create_users_table.sql`をSupabase SQL Editorまたは`supabase db push`で実行してください）
+- Supabase: プロジェクト作成済み・接続情報取得済み。マイグレーション2本とも適用済み（`supabase/migrations/`）
 - Google OAuth: クライアントID/シークレットは`.env`に設定済みだが、**Supabaseダッシュボード側でのGoogle Provider有効化・Redirect URL登録がまだ**（下記参照）
 - Resend: 実キー設定済み。パスワードリセットメールはSupabaseのメール設定を経由せず、バックエンドから直接Resend APIを呼んで送信している（`backend/src/lib/resend.ts`）
 
@@ -27,3 +27,14 @@
 2. Authentication → URL Configuration → Redirect URLs に `http://localhost:3001/v1/auth/oauth/google/callback` を追加（本番デプロイ後は本番のAPI_BASE_URLも追加）
 3. Storage → 新規バケット `avatars` を作成（Public bucketとして。`POST /users/me/avatar` の保存先）
 4. Authentication → Email OTP / Link expiry のリカバリーリンク有効期限が1時間になっているか確認（`.env`の`PASSWORD_RESET_EXPIRES_MINUTES=60`と揃える。ここは独立した設定なので自動連動しない）
+
+## フロントエンド（frontend/）の環境変数
+
+`frontend/.env.local`（gitignore対象、`frontend/.env.example`を元に各自作成）:
+
+| 変数 | 値（開発環境） | 備考 |
+|---|---|---|
+| NEXT_PUBLIC_API_BASE_URL | `http://localhost:3001` | backendの`API_BASE_URL`と一致させる |
+| NEXT_PUBLIC_SESSION_TIMEOUT_MINUTES | `30` | backendの`SESSION_TIMEOUT_MINUTES`と一致させる |
+
+`NEXT_PUBLIC_`プレフィックスの変数はブラウザに露出するため、秘密情報は入れないこと（実際どちらも秘密情報ではない）。

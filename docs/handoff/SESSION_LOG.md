@@ -98,3 +98,35 @@
 2. `GET /v1/users/me`以降の認証済みエンドポイントの実機確認はこの後継続予定（ログイン成功までは確認済み）
 3. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
 4. 次のブロック（テスト機能／レポート／グループ管理等）に進むか、フロントエンド（Next.js）に着手するか、方針をユーザーに確認してから開始すること
+
+## 2026-07-01（フロントエンド着手：ログイン・2FA・ダッシュボード）
+### 実施内容
+- ユーザーから「実サーバーでのログイン確認が成功した」との報告を受け、フロントエンド（Next.js + TypeScript）着手の指示を受ける
+- `docs/handoff/PROJECT_STATUS.md`・`SESSION_LOG.md`を読み直して現状確認。ダッシュボードで要求される「受講中コース一覧」に対応するバックエンドAPI（自分のenrollments一覧）が存在しないギャップを事前に洗い出し、範囲を明示した上で着手（コースカタログ表示のみで代替）
+- `create-next-app`で`frontend/`を作成（Next.js 16.2.10, React 19.2.4, TypeScript, Tailwind v4, App Router, `src/`構成）
+- 認証基盤: `frontend/src/lib/api.ts`（fetchラッパー、`ApiError`）、`frontend/src/lib/auth-context.tsx`（`AuthProvider`/`useAuth`）を実装
+  - トークンはlocalStorageに永続化（`hslms.session`キー）
+  - `authFetch`は401時に`/v1/auth/refresh`で自動リトライし、失敗時はログアウト
+  - 非操作30分（`NEXT_PUBLIC_SESSION_TIMEOUT_MINUTES`）でのアイドルタイムアウト自動ログアウトを実装（仕様書2.3のセッションタイムアウト要件に対応）
+- 画面実装:
+  - `/login`（メール・パスワードフォーム、Googleログインボタン、`?error=`クエリのエラー表示）
+  - `/auth/2fa`（`pendingToken`をクエリから受け取りTOTPコード検証）
+  - `/auth/callback`（OAuthコールバック。URLフラグメントからトークンを読み取り、`GET /v1/users/me`でプロフィールを取得してセッション確立）
+  - `/dashboard`（保護ルート。プロフィール概要＋コースカタログ表示、ログアウトボタン）
+- **実装中に見つけたバグ**: React 19の新ESLintルール（`react-hooks/refs`）対応のため`sessionRef`（useRef）で最新セッションを参照する実装にしたところ、リロード後の初回コース一覧取得が「ログインが必要です」エラーになる競合状態を引き起こした（親のAuthProviderのref同期effectより先に子のDashboardPageのeffectが実行されるため）。プレビューブラウザでの実機確認中に発覚。`sessionRef`をやめ、`session`を`authFetch`/`logout`の依存配列に直接含める設計に修正して解決
+- プレビュー環境（実際のバックエンド・Supabaseと接続）で以下を確認済み:
+  - ログイン（学習者）→ダッシュボード表示→コースカタログ取得
+  - リロード後のセッション復元（上記バグ修正後）
+  - ログアウト→`/login`へのリダイレクト
+  - 未ログイン状態で`/dashboard`に直接アクセス→`/login`へリダイレクト
+  - 管理者テストユーザーを新規作成し2FAを有効化した上で、ログイン→2FA画面遷移→TOTPコード検証→ダッシュボード表示のフルフローを確認
+  - Googleログインボタンのリンク先URLが正しいことを確認（実際のGoogle同意画面を伴う完全なOAuthフローは自動化検証の対象外）
+- プレビューツール用の`.claude/launch.json`は、このセッションのプライマリ作業ディレクトリ（`C:\antigravity\LMS_Test`）側にしか効果がないことが判明したため、そちらのファイルに`hs-lms-frontend`という設定を追加（`--prefix C:\hs-lms\frontend`でnpm scriptsを実行）。`C:\hs-lms\.claude\launch.json`に作成した同名ファイルは無効だったため削除済み
+- 動作確認用に作成した一時スクリプト（`backend/scripts/diag-*.js`, `backend/scripts/setup-admin-2fa.js`）はすべて確認後に削除済み（`admin-test@example.com` / `AdminPass1!`というSupabase上のテストユーザー自体は残っている。2FA有効・secretは`backend/scripts/setup-admin-2fa.js`実行時のログ参照。必要なら削除して再作成可）
+
+### 次回セッションへの申し送り
+1. ダッシュボードの「受講中コース一覧」表示には、バックエンドに「自分のenrollments一覧」を返す新規エンドポイントが必要（現行の7.2.3の8エンドポイントには存在しない）。追加するかどうかユーザーに確認してから着手すること
+2. パスワードリセット画面、プロフィール編集画面、アバターアップロードUIはまだ未実装
+3. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
+4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+5. 次に進める作業（残り画面の実装、次のブロック着手等）の方針をユーザーに確認してから開始すること
