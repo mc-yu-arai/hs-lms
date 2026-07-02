@@ -183,3 +183,32 @@
 4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
 5. Supabase上のテストデータ更新: `test@example.com`のパスワードは`TestPass2!`（旧`TestPass1!`から変更済み）。所属部門は「営業部」に変更済み
 6. 次に進める作業の方針をユーザーに確認してから開始すること
+
+## 2026-07-02（コース受講画面の実装）
+### 実施内容
+- ユーザーからコース受講画面3つ（コース詳細→レッスン視聴→コース完了、の順）の実装指示を受ける。動画はMP4直接再生、PDFはブラウザ標準表示、SCORMはスコープ外という制約も指定された
+- `frontend/src/lib/types.ts`に`CourseDetail`/`ChapterSummary`/`LessonSummary`/`CourseProgress`/`EnrollmentDetail`/`LessonProgressSummary`を追加（バックエンドのレスポンス形に対応）
+- 画面実装:
+  - `/courses/[id]`: コース概要、進捗バー（受講済みの場合）、カリキュラム一覧（レッスンごとに完了チェックマーク表示）。未受講者にはレッスンへのリンクを出さず、「受講を開始する」ボタンのみ表示。受講済みならレッスンタイトルがリンクになる
+  - `/courses/[id]/lessons/[lessonId]`: `contentType`に応じて`VideoLesson`/`PdfLesson`/`TextLesson`の3つの内部コンポーネントを出し分け
+    - 動画: `<video>`要素。`onTimeUpdate`で5秒間隔スロットリングして`PUT .../progress`に進捗%と現在位置を保存、`onLoadedMetadata`で前回の視聴位置から再開、`onEnded`で`completed: true`を送信
+    - PDF: `<iframe>`でブラウザ標準のPDFビューアに表示。完了は手動ボタン（PDFは視聴率を計測できないため）
+    - テキスト: `contentBody`をスクロール可能な`div`に表示し、スクロールで最下部（残り24px以内）に達したら自動的に完了扱い。念のため手動完了ボタンも常設
+    - SCORMタイプのレッスンは「このコンテンツ形式（SCORM）は現在サポートされていません」と表示するのみ（意図的なスコープ外扱い）
+    - 進捗更新のレスポンスで`enrollment.status === "completed"`になったら`/courses/[id]/complete`へ自動遷移
+    - 前後のレッスンへのナビゲーションリンクを設置
+  - `/courses/[id]/complete`: コース詳細と進捗を再取得し、実際に`status === "completed"`であれば🎉の修了メッセージ・コース名・修了日を表示。まだ完了していない場合（直接URLを叩いた等）は「まだ修了していません」という別の表示にフォールバック
+  - ダッシュボードのコースカード（受講中一覧・カタログ双方）を`/courses/[id]`へのリンクに変更
+- 実データでの動作確認のため、動画・PDF・テキストの3レッスンからなる新規テストコース「Content Types Demo」を作成（動画はMDNのサンプルmp4、PDFはMozilla PDF.jsのサンプルPDF、テキストはダミー本文）
+  - 受講登録 → 動画レッスンを最後まで再生（`ended`イベントで自動的に完了・進捗保存のPUTリクエストを確認）→ PDFレッスンを手動完了 → テキストレッスンを手動完了 → **自動的に`/courses/[id]/complete`へ遷移し「コースを修了しました」を確認** → ダッシュボードに戻り、受講中コース一覧に「修了」バッジ・進捗率100%で反映されていることを確認
+- **動作確認中に発見したバグ**: ダッシュボードの「所属」が保存したはずの「営業部」ではなく「未設定」と表示された。調査の結果、`POST /auth/login`と`POST /auth/login/2fa`のレスポンスで使われていた`routes/auth.ts`内の独自関数`publicUser()`が`id/email/lastName/firstName/role`しか返しておらず、`department`等を含む`GET /users/me`のレスポンス形（`toPublicProfile()`）と食い違っていたことが原因。`publicUser()`を削除し`toPublicProfile()`に統一して修正。回帰防止のテストも追加し、55件全てパス
+- この調査の過程で、バックエンドを`npx tsx src/index.ts`（watchなし）で手動起動していたため、それまでのコード修正がサーバーに反映されていなかったことも判明。`npm run dev`（`tsx watch`）で起動し直して解決（`docs/handoff/PROJECT_STATUS.md`に運用メモとして記録）
+- テスト用に作成した「Content Types Demo」コースと関連する受講データはSupabase上にそのまま残している
+
+### 次回セッションへの申し送り
+1. 認証・コース管理ブロックのフロントエンドは、これでバックエンドAPIと一通り接続され機能的に完結した
+2. アバターアップロードの実ファイルでの動作確認はまだ（Supabase Storageの`avatars`バケットが作成済みか要確認）
+3. Google OAuthの完全なE2E確認（実際のGoogleアカウントでの同意画面通過）はまだ実施していない
+4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
+5. バックエンドを手動起動する際は`npm run dev`を使うこと（`npx tsx src/index.ts`直接実行は自動リロードされない）
+6. 次のブロック（テスト機能、レポート、グループ管理等）に進む方針をユーザーに確認してから開始すること

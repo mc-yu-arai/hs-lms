@@ -138,7 +138,7 @@ describe("POST /v1/auth/login", () => {
   });
 
   it("logs in learners directly without requiring 2FA", async () => {
-    const user = makeUser({ role: "learner", totp_enabled: false });
+    const user = makeUser({ role: "learner", totp_enabled: false, department: "営業部" });
     const res = await request(createApp())
       .post("/v1/auth/login")
       .send({ email: user.email, password: "correct-password1!" });
@@ -146,6 +146,9 @@ describe("POST /v1/auth/login", () => {
     expect(res.status).toBe(200);
     expect(res.body.requiresTwoFactor).toBe(false);
     expect(res.body.accessToken).toBe(`access-${user.id}`);
+    // toPublicProfileと同じ形（department等）を返すこと。/users/meのレスポンスと
+    // フィールドが食い違うと、ログイン直後のダッシュボード表示が古い情報になる
+    expect(res.body.user).toMatchObject({ department: "営業部", role: "learner" });
   });
 
   it("requires 2FA for admins with totp enabled and withholds the real tokens", async () => {

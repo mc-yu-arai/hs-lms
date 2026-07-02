@@ -10,6 +10,7 @@ import {
   recordFailedLogin,
   resetFailedLoginCount,
   touchLastLogin,
+  toPublicProfile,
 } from "../services/userRepository";
 import { createMfaPendingToken, verifyMfaPendingToken } from "../services/mfaPendingToken";
 import { decryptSecret } from "../lib/crypto";
@@ -18,10 +19,6 @@ import { verifyTotpCode } from "../services/totpService";
 export const authRouter = Router();
 
 const GENERIC_LOGIN_ERROR = "メールアドレスまたはパスワードが正しくありません";
-
-function publicUser(user: { id: string; email: string; last_name: string; first_name: string; role: string }) {
-  return { id: user.id, email: user.email, lastName: user.last_name, firstName: user.first_name, role: user.role };
-}
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -69,7 +66,7 @@ authRouter.post(
       accessToken: data.session.access_token,
       refreshToken: data.session.refresh_token,
       expiresIn: data.session.expires_in,
-      user: publicUser(appUser),
+      user: toPublicProfile(appUser),
     });
   }),
 );
@@ -107,7 +104,7 @@ authRouter.post(
     return res.status(200).json({
       accessToken: pending.supabaseAccessToken,
       refreshToken: pending.supabaseRefreshToken,
-      user: publicUser(appUser),
+      user: toPublicProfile(appUser),
     });
   }),
 );

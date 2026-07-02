@@ -47,3 +47,51 @@ export interface EnrollmentSummary {
     thumbnailUrl: string | null;
   };
 }
+
+export type LessonContentType = "video" | "pdf" | "text" | "scorm";
+
+export interface LessonSummary {
+  id: string;
+  title: string;
+  contentType: LessonContentType;
+  durationSeconds: number | null;
+  displayOrder: number;
+  contentUrl: string | null;
+  contentBody: string | null;
+}
+
+export interface ChapterSummary {
+  id: string;
+  title: string;
+  displayOrder: number;
+  lessons: LessonSummary[];
+}
+
+export interface CourseDetail {
+  course: Course;
+  chapters: ChapterSummary[];
+  enrolled: boolean;
+}
+
+export interface EnrollmentDetail {
+  id: string;
+  status: EnrollmentStatus;
+  progressRate: number;
+  totalStudyTime: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  dueDate: string | null;
+}
+
+export interface LessonProgressSummary {
+  lessonId: string;
+  title: string;
+  isCompleted: boolean;
+  progressPercent: number;
+  lastPositionSeconds: number | null;
+}
+
+export interface CourseProgress {
+  enrollment: EnrollmentDetail;
+  lessons: LessonProgressSummary[];
+}

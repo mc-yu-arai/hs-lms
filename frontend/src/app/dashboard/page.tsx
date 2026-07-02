@@ -114,7 +114,11 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {enrollments?.map((enrollment) => (
-              <div key={enrollment.id} className="rounded-xl bg-white p-5 shadow-sm">
+              <a
+                key={enrollment.id}
+                href={`/courses/${enrollment.course.id}`}
+                className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+              >
                 <div className="mb-2 flex items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[enrollment.status]}`}>
                     {STATUS_LABEL[enrollment.status]}
@@ -134,7 +138,7 @@ export default function DashboardPage() {
                   </div>
                   <p className="mt-1 text-xs text-gray-400">進捗率: {enrollment.progressRate}%</p>
                 </div>
-              </div>
+              </a>
             ))}
           </div>
         </section>
@@ -156,7 +160,11 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {courses?.map((course) => (
-              <div key={course.id} className="rounded-xl bg-white p-5 shadow-sm">
+              <a
+                key={course.id}
+                href={`/courses/${course.id}`}
+                className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+              >
                 <div className="mb-2 flex items-center gap-2">
                   <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
                     {LEVEL_LABEL[course.level]}
@@ -170,7 +178,7 @@ export default function DashboardPage() {
                 {course.durationMinutes !== null && (
                   <p className="mt-3 text-xs text-gray-400">学習時間目安: {course.durationMinutes}分</p>
                 )}
-              </div>
+              </a>
             ))}
           </div>
         </section>
