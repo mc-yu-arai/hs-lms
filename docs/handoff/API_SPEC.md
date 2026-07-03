@@ -28,7 +28,11 @@
 | DELETE | /v1/courses/:id | 要・admin/super_admin限定 | コース削除。受講履歴(enrollments)が1件でもあれば409で拒否 |
 | POST | /v1/courses/:id/enroll | Bearer要 | 受講登録。前提コース(`prerequisiteCourseId`)が未修了なら409。既に受講済みなら200で既存レコードを返す（冪等） |
 | GET | /v1/courses/:id/progress | Bearer要 | 自分の受講進捗（enrollment＋レッスン単位の進捗一覧）。未受講なら404 |
-| PUT | /v1/courses/:id/lessons/:lessonId/progress | Bearer要 | レッスン進捗更新。video系は80%以上で自動完了、それ以外は`completed:true`を明示。enrollmentの進捗率・ステータスを再計算 |
+| PUT | /v1/courses/:id/lessons/:lessonId/progress | Bearer要 | レッスン進捗更新。video系は80%以上で自動完了、それ以外は`completed:true`を明示。enrollmentの進捗率・ステータスを再計算（テストが存在するコースは合格済み受験履歴も無いと`completed`にならない） |
+| GET | /v1/courses/:id/quiz | Bearer要 | コースの修了テスト取得（設問・選択肢）。学習者は要受講登録、admin/super_adminは受講登録不要。学習者には`isCorrect`を隠す |
+| POST | /v1/courses/:id/quiz | 要・admin/super_admin限定 | テスト作成・全置換（`questions`配列をネストで受け取る。1コース1テスト）。既存の受験履歴(quiz_attempts)は設問のON DELETE CASCADEで一緒に削除される点に注意 |
+| POST | /v1/courses/:id/quiz/attempts | Bearer要 | 回答送信・採点。設問ごとに選択肢集合が完全一致すれば正解、`(正解数/設問数)×100`が得点。`score >= courses.pass_score`で合格。無制限に再受験可。enrollmentの完了判定も同時に再計算 |
+| GET | /v1/courses/:id/quiz/attempts | Bearer要 | 自分の受験履歴一覧（得点・合否・受験日時、新しい順） |
 
 ### リクエスト/レスポンス例
 
@@ -141,10 +145,42 @@
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `too_many_requests`(429)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `too_many_requests`(429)
+
+**GET /v1/courses/:id/quiz**
+```json
+{ "quiz": { "id": "...", "title": "修了確認テスト", "description": "...", "passScore": 70 },
+  "questions": [
+    { "id": "...", "questionText": "...", "questionType": "single_choice", "displayOrder": 0,
+      "choices": [ { "id": "...", "choiceText": "...", "displayOrder": 0 } ] }
+  ] }
+```
+学習者向けレスポンスには各choiceの`isCorrect`フィールドが存在しない（admin/super_adminのみ含まれる）。
+
+**POST /v1/courses/:id/quiz**（admin/super_admin）
+```json
+{ "title": "修了確認テスト", "questions": [
+  { "questionText": "...", "questionType": "single_choice",
+    "choices": [ { "choiceText": "A", "isCorrect": true }, { "choiceText": "B", "isCorrect": false } ] } ] }
+```
+`single_choice`は正解choiceがちょうど1つ、`multiple_choice`は1つ以上必要（バリデーションエラーは400）。
+
+**POST /v1/courses/:id/quiz/attempts**
+```json
+// request
+{ "answers": [ { "questionId": "...", "choiceIds": ["...", "..."] } ] }
+// response
+{ "attempt": { "id": "...", "score": 100, "isPassed": true, "submittedAt": "..." },
+  "questionResults": [ { "questionId": "...", "isCorrect": true, "correctChoiceIds": ["..."], "selectedChoiceIds": ["..."] } ],
+  "enrollment": { "id": "...", "status": "completed", "progressRate": 100, "completedAt": "..." } }
+```
+
+**GET /v1/courses/:id/quiz/attempts**
+```json
+{ "attempts": [ { "id": "...", "score": 100, "isPassed": true, "submittedAt": "..." } ] }
+```
 
 ## 未実装（別ブロック扱い）
-- テスト機能（Quiz/Question/Answer、`00_共通運用ルール`で別ブロックと明記）
 - 修了証発行（3.2.4。テスト合格が前提のためテスト機能ブロック後）
 - レポートAPI（7.2.4: `/reports/progress`, `/reports/mandatory`, `/reports/export`, `/reports/dashboard`）
 - グループ管理（4.2.2）・通知/アラート機能（4.4.2）

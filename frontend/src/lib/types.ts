@@ -95,3 +95,45 @@ export interface CourseProgress {
   enrollment: EnrollmentDetail;
   lessons: LessonProgressSummary[];
 }
+
+export type QuestionType = "single_choice" | "multiple_choice";
+
+export interface QuizChoice {
+  id: string;
+  choiceText: string;
+  displayOrder: number;
+  isCorrect?: boolean;
+}
+
+export interface QuizQuestion {
+  id: string;
+  questionText: string;
+  questionType: QuestionType;
+  displayOrder: number;
+  choices: QuizChoice[];
+}
+
+export interface QuizDetail {
+  quiz: { id: string; title: string; description: string | null; passScore: number };
+  questions: QuizQuestion[];
+}
+
+export interface QuizQuestionResult {
+  questionId: string;
+  isCorrect: boolean;
+  correctChoiceIds: string[];
+  selectedChoiceIds: string[];
+}
+
+export interface QuizAttemptResult {
+  attempt: { id: string; score: number; isPassed: boolean; submittedAt: string };
+  questionResults: QuizQuestionResult[];
+  enrollment: { id: string; status: EnrollmentStatus; progressRate: number; completedAt: string | null };
+}
+
+export interface QuizAttemptSummary {
+  id: string;
+  score: number;
+  isPassed: boolean;
+  submittedAt: string;
+}

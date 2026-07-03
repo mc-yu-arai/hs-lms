@@ -21,6 +21,15 @@ import {
   type CourseLevel,
   type ChapterWithLessons,
 } from "../services/courseRepository";
+import {
+  getQuizByCourseId,
+  getQuestionsWithChoices,
+  createOrReplaceQuiz,
+  submitQuizAttempt,
+  listAttemptsForEnrollment,
+  hasPassedQuiz,
+  type QuestionWithChoices,
+} from "../services/quizRepository";
 
 export const coursesRouter = Router();
 
@@ -283,9 +292,12 @@ coursesRouter.put(
     await upsertLessonProgress(enrollment.id, lesson.id, lesson.content_type, input);
 
     const totalLessonCount = await countLessonsForCourse(course.id);
+    const quiz = await getQuizByCourseId(course.id);
+    const quizRequirementMet = !quiz || (await hasPassedQuiz(enrollment.id, quiz.id));
     const updatedEnrollment = await recalculateEnrollmentProgress(
       enrollment.id,
       totalLessonCount,
+      quizRequirementMet,
       input.studyTimeDeltaSeconds ?? 0,
     );
 
@@ -297,6 +309,156 @@ coursesRouter.put(
         totalStudyTime: updatedEnrollment.total_study_time,
         completedAt: updatedEnrollment.completed_at,
       },
+    });
+  }),
+);
+
+// 未受講者・非adminには正解(isCorrect)を隠す
+function serializeQuestions(questions: QuestionWithChoices[], includeAnswers: boolean) {
+  return questions.map((question) => ({
+    id: question.id,
+    questionText: question.question_text,
+    questionType: question.question_type,
+    displayOrder: question.display_order,
+    choices: question.choices.map((choice) => ({
+      id: choice.id,
+      choiceText: choice.choice_text,
+      displayOrder: choice.display_order,
+      ...(includeAnswers ? { isCorrect: choice.is_correct } : {}),
+    })),
+  }));
+}
+
+coursesRouter.get(
+  "/:id/quiz",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    const quiz = await getQuizByCourseId(course.id);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "このコースにテストは設定されていません");
+
+    const admin = isAdmin(req.appUser!.role);
+    if (!admin) {
+      const enrollment = await findEnrollment(req.appUser!.id, course.id);
+      if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+    }
+
+    const questions = await getQuestionsWithChoices(quiz.id);
+
+    return res.status(200).json({
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      questions: serializeQuestions(questions, admin),
+    });
+  }),
+);
+
+const choiceInputSchema = z.object({
+  choiceText: z.string().min(1).max(500),
+  isCorrect: z.boolean(),
+});
+
+const questionInputSchema = z
+  .object({
+    questionText: z.string().min(1),
+    questionType: z.enum(["single_choice", "multiple_choice"]),
+    choices: z.array(choiceInputSchema).min(2),
+  })
+  .superRefine((question, ctx) => {
+    const correctCount = question.choices.filter((c) => c.isCorrect).length;
+    if (correctCount === 0) {
+      ctx.addIssue({ code: "custom", message: "正解の選択肢を1つ以上指定してください", path: ["choices"] });
+    }
+    if (question.questionType === "single_choice" && correctCount > 1) {
+      ctx.addIssue({ code: "custom", message: "単一選択問題の正解は1つだけにしてください", path: ["choices"] });
+    }
+  });
+
+const quizInputSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().nullable().optional(),
+  questions: z.array(questionInputSchema).min(1),
+});
+
+coursesRouter.post(
+  "/:id/quiz",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    const input = quizInputSchema.parse(req.body);
+    const quiz = await createOrReplaceQuiz(course.id, input);
+    const questions = await getQuestionsWithChoices(quiz.id);
+
+    return res.status(200).json({
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      questions: serializeQuestions(questions, true),
+    });
+  }),
+);
+
+const quizAttemptSchema = z.object({
+  answers: z.array(
+    z.object({
+      questionId: z.string().min(1),
+      choiceIds: z.array(z.string().min(1)).default([]),
+    }),
+  ),
+});
+
+coursesRouter.post(
+  "/:id/quiz/attempts",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    const enrollment = await findEnrollment(req.appUser!.id, course.id);
+    if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+
+    const quiz = await getQuizByCourseId(course.id);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "このコースにテストは設定されていません");
+
+    const { answers } = quizAttemptSchema.parse(req.body);
+    const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, course.pass_score);
+
+    const totalLessonCount = await countLessonsForCourse(course.id);
+    const quizRequirementMet = await hasPassedQuiz(enrollment.id, quiz.id);
+    const updatedEnrollment = await recalculateEnrollmentProgress(enrollment.id, totalLessonCount, quizRequirementMet, 0);
+
+    return res.status(201).json({
+      attempt: { id: attempt.id, score: attempt.score, isPassed: attempt.is_passed, submittedAt: attempt.submitted_at },
+      questionResults,
+      enrollment: {
+        id: updatedEnrollment.id,
+        status: updatedEnrollment.status,
+        progressRate: updatedEnrollment.progress_rate,
+        completedAt: updatedEnrollment.completed_at,
+      },
+    });
+  }),
+);
+
+coursesRouter.get(
+  "/:id/quiz/attempts",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    const enrollment = await findEnrollment(req.appUser!.id, course.id);
+    if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+
+    const quiz = await getQuizByCourseId(course.id);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "このコースにテストは設定されていません");
+
+    const attempts = await listAttemptsForEnrollment(enrollment.id, quiz.id);
+
+    return res.status(200).json({
+      attempts: attempts.map((a) => ({ id: a.id, score: a.score, isPassed: a.is_passed, submittedAt: a.submitted_at })),
     });
   }),
 );

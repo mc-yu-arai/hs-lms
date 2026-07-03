@@ -212,3 +212,27 @@
 4. コース管理のDBスキーマ設計はユーザー未確認のまま実装している（`docs/handoff/DB_SCHEMA.md`参照）
 5. バックエンドを手動起動する際は`npm run dev`を使うこと（`npx tsx src/index.ts`直接実行は自動リロードされない）
 6. 次のブロック（テスト機能、レポート、グループ管理等）に進む方針をユーザーに確認してから開始すること
+
+## 2026-07-03（テスト機能ブロックの実装）
+### 実施内容
+- ユーザーからテスト機能ブロックの実装指示を受ける。確定パラメータ: 出題形式は単一選択/複数選択の2種類、合格条件はコースごとの`pass_score`（デフォルト70点）以上、受験回数は無制限。実装範囲はDBマイグレーション・バックエンドAPI（テスト取得・回答送信・採点・結果取得）・フロントエンド（テスト画面・結果画面）・コース完了判定の拡張
+- `docs/handoff/PROJECT_STATUS.md`・`SESSION_LOG.md`を読み直して現状確認してから着手
+- DBスキーマを設計し提示（「1コース=1テスト」、合格点は`courses.pass_score`を流用し`quizzes`には持たせない、`quiz_attempts`は`enrollment_id`に紐付け、`quiz_answers`は1選択肢1行）。ユーザーから承認を得てから`supabase/migrations/20260702000001_create_quiz_tables.sql`を作成。ユーザーがSupabaseダッシュボードで適用
+- バックエンド: `backend/src/services/quizRepository.ts`を新規作成（`getQuizByCourseId`, `getQuestionsWithChoices`, `createOrReplaceQuiz`, `submitQuizAttempt`, `listAttemptsForEnrollment`, `hasPassedQuiz`）。採点は設問ごとに選択肢集合の完全一致で正誤判定、`(正解数/設問数)×100`が得点
+- `backend/src/routes/courses.ts`に4エンドポイント追加: `GET/POST /courses/:id/quiz`（テスト取得・admin向け作成、学習者には`isCorrect`を隠す）、`POST /courses/:id/quiz/attempts`（回答送信・採点、コース完了判定も同時に再計算）、`GET /courses/:id/quiz/attempts`（受験履歴）
+- `backend/src/services/courseRepository.ts`の`recalculateEnrollmentProgress`に`quizRequirementMet`引数を追加し、完了判定を「全レッスン完了 && quizRequirementMet」に拡張。呼び出し元（レッスン進捗更新API、テスト回答送信API）双方で「テストが無い、またはそのenrollmentに合格済み受験履歴がある」を算出して渡すよう変更
+- `backend/tests/quiz.test.ts`を新規作成（admin限定・バリデーション・isCorrectの秘匿・採点ロジック・無制限再受験・コース完了判定への影響、計8件）。バックエンド全63件パス、`tsc --noEmit`もクリーン
+- フロントエンド: `frontend/src/lib/types.ts`に`QuizQuestion`/`QuizDetail`/`QuizAttemptResult`/`QuizAttemptSummary`等を追加
+  - `/courses/[id]/quiz`: 単一選択=ラジオボタン、複数選択=チェックボックスで出題。未回答の設問がある間は提出ボタンを無効化。提出結果は`sessionStorage`経由で結果画面に渡す
+  - `/courses/[id]/quiz/result`: 得点・合否・設問ごとの正誤内訳（`sessionStorage`にある場合のみ）、受験履歴一覧（`GET .../quiz/attempts`から取得、`sessionStorage`が無い直接アクセス時のフォールバックにもなる）、再受験・コース詳細/修了画面への導線
+  - `/courses/[id]`にテストの有無を検出するeffectと「修了テストを受ける」導線を追加
+  - `next build`/ESLint/`tsc --noEmit`いずれもクリーン
+- 実データでの動作確認: サービスロールキーで一時的なテスト管理者アカウントを作成し、PowerShellから実際のバックエンドAPIを叩いてテキストレッスン1つ＋2問（単一選択・複数選択）のテスト付きコースを新規作成（日本語がPowerShellの`ConvertTo-Json`既定エンコーディングで文字化けする既知の問題があり、UTF-8バイト列に変換して送信し直して解消）。学習者アカウント（test@example.com）でブラウザから受講登録→レッスン完了（この時点では全レッスン完了でもテスト未合格のためコース未完了のまま、を確認）→テスト画面で回答→提出→100点で合格しコースが自動的に`completed`になることを確認→修了画面・ダッシュボードへの反映も確認→わざと誤答で再受験し、0点・不合格が受験履歴に追加される一方でコースの修了状態は維持される（一度合格すれば良い、の挙動）ことも確認
+- 動作確認用に作成した一時スクリプト・出力ファイル（`backend/scripts-seed-quiz-admin.ts`等）は確認後に削除済み。テスト管理者アカウント（`quiz-test-admin@example.com`）とテストコース「テスト機能検証コース」はSupabase上にそのまま残している（デモ・継続確認用）
+
+### 次回セッションへの申し送り
+1. テスト機能ブロックのバックエンド・フロントエンドは実データでの動作確認まで完了し、機能的に完結した
+2. テスト作成・編集用の管理者向けフロントエンド画面は未実装。現状`POST /courses/:id/quiz`をAPI経由で直接呼ぶ必要がある（次にテスト管理UIを作るかはユーザーに確認すること）
+3. 結果画面の設問ごとの正誤内訳は提出直後（`sessionStorage`経由）のみ表示される設計。受験履歴からの正誤内訳の遡り閲覧が必要になった場合はバックエンドの`GET .../quiz/attempts`のレスポンスに詳細を含めるよう拡張が必要
+4. アバターアップロードの実ファイルでの動作確認はまだ。Google OAuthの完全なE2E確認もまだ
+5. 次のブロック（修了証発行、レポートAPI、グループ管理、通知等）に進む方針をユーザーに確認してから開始すること

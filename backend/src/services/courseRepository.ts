@@ -348,15 +348,19 @@ export async function upsertLessonProgress(
   return data as LessonProgress;
 }
 
+// quizRequirementMetは「コースにテストが存在しない」または「合格済みの受験履歴が1件でもある」場合にtrue。
+// テスト機能ブロック(quizRepository.ts)側で算出し、呼び出し元(レッスン進捗更新API・テスト回答送信API)から渡す
 export async function recalculateEnrollmentProgress(
   enrollmentId: string,
   totalLessonCount: number,
+  quizRequirementMet: boolean,
   studyTimeDeltaSeconds = 0,
 ): Promise<Enrollment> {
   const progressList = await getLessonProgressList(enrollmentId);
   const completedCount = progressList.filter((p) => p.is_completed).length;
   const progressRate = totalLessonCount > 0 ? Math.round((completedCount / totalLessonCount) * 10000) / 100 : 0;
-  const isCompleted = totalLessonCount > 0 && completedCount === totalLessonCount;
+  const allLessonsCompleted = totalLessonCount > 0 && completedCount === totalLessonCount;
+  const isCompleted = allLessonsCompleted && quizRequirementMet;
 
   const { data: current, error: fetchError } = await supabaseAdmin
     .from("enrollments")

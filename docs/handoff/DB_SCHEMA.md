@@ -114,11 +114,68 @@ CREATE TABLE public.lesson_progress (
 
 **「完了(completed)」の判定について**: 現時点では「コース内の全レッスンが完了」のみでenrollmentを`completed`にしている。仕様書3.2.4は本来「全レッスン完了 かつ 修了テスト合格」を要求しているが、テスト機能(Quiz/Question/Answer)は別ブロックのため未実装。テスト機能ブロック着手時に、この判定ロジック(`courseRepository.ts`の`recalculateEnrollmentProgress`)を「テスト合格」も条件に含めるよう拡張する必要がある。
 
+## テスト機能ブロックのテーブル
+「1コース=1テスト」（コース修了テストのみが今回のスコープ）。合格点は`courses.pass_score`を流用するため`quizzes`テーブルには持たせない。無制限受験のため`quiz_attempts`は1受講(enrollment)につき複数行になり得る。
+
+```sql
+CREATE TABLE public.quizzes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID NOT NULL UNIQUE REFERENCES public.courses(id) ON DELETE CASCADE,
+  title VARCHAR(200) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_id UUID NOT NULL REFERENCES public.quizzes(id) ON DELETE CASCADE,
+  question_text TEXT NOT NULL,
+  question_type VARCHAR(20) NOT NULL CHECK (question_type IN ('single_choice', 'multiple_choice')),
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.choices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id UUID NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
+  choice_text VARCHAR(500) NOT NULL,
+  is_correct BOOLEAN NOT NULL DEFAULT false,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- 受験履歴。enrollmentに紐付ける(受講登録=ユーザー×コースに対する受験)
+CREATE TABLE public.quiz_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  enrollment_id UUID NOT NULL REFERENCES public.enrollments(id) ON DELETE CASCADE,
+  quiz_id UUID NOT NULL REFERENCES public.quizzes(id) ON DELETE CASCADE,
+  score DECIMAL(5,2) NOT NULL,
+  is_passed BOOLEAN NOT NULL,
+  submitted_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- 選択した選択肢。1選択肢1行(複数選択問題は同じquestion_idで複数行)
+CREATE TABLE public.quiz_answers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attempt_id UUID NOT NULL REFERENCES public.quiz_attempts(id) ON DELETE CASCADE,
+  question_id UUID NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
+  choice_id UUID NOT NULL REFERENCES public.choices(id) ON DELETE CASCADE,
+  UNIQUE (attempt_id, question_id, choice_id)
+);
+```
+
+**採点方法**: 設問ごとに「正解の選択肢集合」と「選択した選択肢集合」を比較し、完全一致（過不足なし）なら正解。得点は`(正解設問数 / 全設問数) × 100`。合否は`score >= courses.pass_score`。
+
+**コース完了判定の拡張**: `courseRepository.ts`の`recalculateEnrollmentProgress`に`quizRequirementMet: boolean`引数を追加し、「全レッスン完了 && quizRequirementMet」で判定するよう変更。`quizRequirementMet`は「そのコースにテストが存在しない」または「そのenrollmentに合格済みの受験履歴が1件でもある」場合に`true`。呼び出し元（レッスン進捗更新API、テスト回答送信API）の両方で算出して渡す。
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
 | `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | 適用済み（2026-07-01ユーザー確認） |
 | `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | 適用済み（2026-07-01。初回実行時は`public.set_updated_at()`未定義でエラーとなり、ファイル内で`CREATE OR REPLACE FUNCTION`として再定義＋`CREATE TABLE IF NOT EXISTS`化して再実行し成功） |
+| `supabase/migrations/20260702000001_create_quiz_tables.sql` | `quizzes`/`questions`/`choices`/`quiz_attempts`/`quiz_answers` 作成 | 適用済み（2026-07-03ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

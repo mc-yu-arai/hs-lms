@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import type { CourseDetail, CourseProgress } from "@/lib/types";
+import type { CourseDetail, CourseProgress, QuizDetail } from "@/lib/types";
 
 const LEVEL_LABEL: Record<CourseDetail["course"]["level"], string> = {
   beginner: "初級",
@@ -30,6 +30,7 @@ export default function CourseDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [hasQuiz, setHasQuiz] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -50,6 +51,14 @@ export default function CourseDetailPage() {
       .then(setProgress)
       .catch(() => undefined);
   }, [user, authFetch, courseId, detail?.enrolled]);
+
+  useEffect(() => {
+    if (!user || !detail) return;
+    if (!detail.enrolled && user.role === "learner") return;
+    authFetch<QuizDetail>(`/v1/courses/${courseId}/quiz`)
+      .then(() => setHasQuiz(true))
+      .catch(() => setHasQuiz(false));
+  }, [user, authFetch, courseId, detail]);
 
   async function handleEnroll() {
     setEnrollError(null);
@@ -160,6 +169,20 @@ export default function CourseDetailPage() {
             >
               修了画面を見る
             </a>
+          )}
+
+          {detail.enrolled && hasQuiz && (
+            <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+              <p className="mb-2 text-sm text-gray-700">
+                このコースには修了テストがあります。全レッスンを完了し、テストに合格するとコース修了となります。
+              </p>
+              <a
+                href={`/courses/${courseId}/quiz`}
+                className="inline-block rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                修了テストを受ける
+              </a>
+            </div>
           )}
         </section>
 
