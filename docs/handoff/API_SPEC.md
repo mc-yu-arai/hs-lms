@@ -19,6 +19,8 @@
 | PUT | /v1/users/me | Bearer要 | プロフィール更新。email変更時は即時反映せず確認メール送信のみ |
 | POST | /v1/users/me/avatar | Bearer要 | アイコン画像アップロード（JPEG/PNG、最大2MB、Supabase Storage） |
 | GET | /v1/users/me/enrollments | Bearer要 | 自分の受講中コース一覧（進捗率・ステータス・コース基本情報を含む）。仕様書7.2.3には無いが、ダッシュボードの「受講中コース一覧」表示のために追加（コース管理ブロックの拡張） |
+| GET | /v1/users | 要・admin/super_admin限定 | 全ユーザー一覧取得。`keyword`(メールの部分一致)/`role`/`isActive`でフィルタ可 |
+| PUT | /v1/users/:id | 要・admin/super_admin限定 | 他ユーザーのロール変更・有効化/無効化。**自分自身は対象にできない**（自己ロックアウト防止のため400） |
 | POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
 | PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 | GET | /v1/courses | Bearer要 | コース一覧。learnerは`isPublished:true`のみ、admin/super_adminは全件。`keyword`/`categoryId`/`level`でフィルタ可 |
@@ -145,7 +147,7 @@
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `too_many_requests`(429)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `too_many_requests`(429)
 
 **GET /v1/courses/:id/quiz**
 ```json
@@ -180,8 +182,23 @@
 { "attempts": [ { "id": "...", "score": 100, "isPassed": true, "submittedAt": "..." } ] }
 ```
 
+**GET /v1/users**（admin/super_admin）
+```json
+{ "users": [ { "id": "...", "email": "...", "lastName": "...", "firstName": "...", "role": "learner",
+  "department": "営業部", "isActive": true, ... } ] }
+```
+
+**PUT /v1/users/:id**（admin/super_admin）
+```json
+// request（フィールドは任意）
+{ "role": "admin", "isActive": false }
+// response
+{ "user": { ... } }
+// 自分自身のidを指定した場合 -> 400 { "error": { "code": "self_modification_forbidden", ... } }
+```
+
 ## 未実装（別ブロック扱い）
 - 修了証発行（3.2.4。テスト合格が前提のためテスト機能ブロック後）
 - レポートAPI（7.2.4: `/reports/progress`, `/reports/mandatory`, `/reports/export`, `/reports/dashboard`）
 - グループ管理（4.2.2）・通知/アラート機能（4.4.2）
-- ユーザー管理API（7.2.2の`/users`一覧・作成・更新・削除・CSVインポート。認証ブロックでは`/users/me`系のみ実装済み）
+- ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）

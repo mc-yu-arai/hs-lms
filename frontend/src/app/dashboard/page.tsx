@@ -77,6 +77,11 @@ export default function DashboardPage() {
             <span className="text-sm text-gray-600">
               {user.lastName} {user.firstName} さん
             </span>
+            {(user.role === "admin" || user.role === "super_admin") && (
+              <a href="/admin/courses" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+                管理者メニュー
+              </a>
+            )}
             <a href="/profile" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
               プロフィール編集
             </a>

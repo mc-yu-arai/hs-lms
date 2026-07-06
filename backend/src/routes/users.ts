@@ -2,8 +2,15 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { asyncHandler, HttpError } from "../middleware/errorHandler";
-import { requireAuth } from "../middleware/requireAuth";
-import { updateProfile, toPublicProfile, type UserProfileUpdate } from "../services/userRepository";
+import { requireAuth, requireRole } from "../middleware/requireAuth";
+import {
+  updateProfile,
+  toPublicProfile,
+  listUsers,
+  findUserById,
+  updateUserAsAdmin,
+  type UserProfileUpdate,
+} from "../services/userRepository";
 import { requestEmailChange } from "../lib/gotrueRest";
 import { uploadAvatar, findAvatarUrl, mimeToExtension } from "../services/avatarStorage";
 import { listEnrollmentsForUser } from "../services/courseRepository";
@@ -14,6 +21,26 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 },
 });
+
+const listUsersQuerySchema = z.object({
+  keyword: z.string().optional(),
+  role: z.enum(["learner", "admin", "super_admin"]).optional(),
+  isActive: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+});
+
+usersRouter.get(
+  "/",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const { keyword, role, isActive } = listUsersQuerySchema.parse(req.query);
+    const users = await listUsers({ keyword, role, isActive });
+    return res.status(200).json({ users: users.map((u) => toPublicProfile(u)) });
+  }),
+);
 
 usersRouter.get(
   "/me",
@@ -102,5 +129,28 @@ usersRouter.post(
 
     const avatarUrl = await uploadAvatar(req.appUser!.id, req.file.buffer, req.file.mimetype);
     return res.status(200).json({ avatarUrl });
+  }),
+);
+
+const adminUpdateUserSchema = z.object({
+  role: z.enum(["learner", "admin", "super_admin"]).optional(),
+  isActive: z.boolean().optional(),
+});
+
+usersRouter.put(
+  "/:id",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    if (req.params.id === req.appUser!.id) {
+      throw new HttpError(400, "self_modification_forbidden", "自分自身のロール・有効状態は変更できません");
+    }
+
+    const existing = await findUserById(req.params.id);
+    if (!existing) throw new HttpError(404, "user_not_found", "ユーザーが見つかりません");
+
+    const patch = adminUpdateUserSchema.parse(req.body);
+    const updated = await updateUserAsAdmin(req.params.id, patch);
+    return res.status(200).json({ user: toPublicProfile(updated ?? existing) });
   }),
 );

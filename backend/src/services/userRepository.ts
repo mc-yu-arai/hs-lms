@@ -100,6 +100,39 @@ export async function syncEmail(userId: string, newEmail: string) {
   if (error) throw error;
 }
 
+export interface ListUsersFilters {
+  keyword?: string;
+  role?: AppUser["role"];
+  isActive?: boolean;
+}
+
+export async function listUsers(filters: ListUsersFilters): Promise<AppUser[]> {
+  let query = supabaseAdmin.from("users").select("*").order("created_at", { ascending: false });
+
+  if (filters.role) query = query.eq("role", filters.role);
+  if (filters.isActive !== undefined) query = query.eq("is_active", filters.isActive);
+  if (filters.keyword) query = query.ilike("email", `%${filters.keyword}%`);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as AppUser[];
+}
+
+export interface AdminUserUpdate {
+  role?: AppUser["role"];
+  isActive?: boolean;
+}
+
+export async function updateUserAsAdmin(userId: string, patch: AdminUserUpdate): Promise<AppUser | null> {
+  const row: Record<string, unknown> = {};
+  if (patch.role !== undefined) row.role = patch.role;
+  if (patch.isActive !== undefined) row.is_active = patch.isActive;
+
+  const { data, error } = await supabaseAdmin.from("users").update(row).eq("id", userId).select("*").maybeSingle();
+  if (error) throw error;
+  return data as AppUser | null;
+}
+
 export function toPublicProfile(user: AppUser, avatarUrl: string | null = null) {
   return {
     id: user.id,
