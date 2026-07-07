@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useRequireAdmin } from "@/lib/use-require-admin";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import type { AuthUser, UserRole } from "@/lib/types";
+import type { AuthUser, Group, UserRole } from "@/lib/types";
 import { AdminHeader } from "../AdminHeader";
+import { NewUserModal } from "./NewUserModal";
+import { ImportUsersModal } from "./ImportUsersModal";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   learner: "受講者",
@@ -18,9 +20,12 @@ export default function AdminUsersPage() {
   const { authFetch } = useAuth();
 
   const [users, setUsers] = useState<AuthUser[] | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   function load() {
     authFetch<{ users: AuthUser[] }>("/v1/users")
@@ -31,6 +36,9 @@ export default function AdminUsersPage() {
   useEffect(() => {
     if (!isAuthorized) return;
     load();
+    authFetch<{ groups: Group[] }>("/v1/groups")
+      .then((res) => setGroups(res.groups))
+      .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthorized]);
 
@@ -60,7 +68,23 @@ export default function AdminUsersPage() {
     <main className="min-h-screen bg-gray-50">
       <AdminHeader />
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <h2 className="mb-6 text-lg font-bold text-gray-900">ユーザー管理</h2>
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">ユーザー管理</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              CSVインポート
+            </button>
+            <button
+              onClick={() => setShowNewUserModal(true)}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              新規作成
+            </button>
+          </div>
+        </div>
 
         {error && (
           <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -127,6 +151,20 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      {showNewUserModal && (
+        <NewUserModal
+          groups={groups}
+          onClose={() => setShowNewUserModal(false)}
+          onCreated={load}
+        />
+      )}
+      {showImportModal && (
+        <ImportUsersModal
+          onClose={() => setShowImportModal(false)}
+          onImported={load}
+        />
+      )}
     </main>
   );
 }

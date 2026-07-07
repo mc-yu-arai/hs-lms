@@ -21,6 +21,9 @@
 | GET | /v1/users/me/enrollments | Bearer要 | 自分の受講中コース一覧（進捗率・ステータス・コース基本情報を含む）。仕様書7.2.3には無いが、ダッシュボードの「受講中コース一覧」表示のために追加（コース管理ブロックの拡張） |
 | GET | /v1/users | 要・admin/super_admin限定 | 全ユーザー一覧取得。`keyword`(メールの部分一致)/`role`/`isActive`でフィルタ可 |
 | PUT | /v1/users/:id | 要・admin/super_admin限定 | 他ユーザーのロール変更・有効化/無効化。**自分自身は対象にできない**（自己ロックアウト防止のため400） |
+| POST | /v1/users | 要・admin/super_admin限定 | ユーザー手動新規作成。Supabase Authにアカウント作成＋`public.users`へ登録。初期パスワードはランダム生成しResendでメール送信。`groupIds`指定時はその場でグループメンバーとしても登録（割当済みコースへの受講登録自動作成も発火） |
+| POST | /v1/users/import | 要・admin/super_admin限定 | CSV一括インポート（`multipart/form-data`、フィールド名`file`）。1件でもバリデーションエラーがあれば何も作成しない。全行成功後にグループ割り当てを実行 |
+| GET | /v1/users/import/template | 要・admin/super_admin限定 | CSVインポート用テンプレートのダウンロード（ヘッダー行＋サンプル行、BOM付きUTF-8） |
 | POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
 | PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 | GET | /v1/courses | Bearer要 | コース一覧。learnerは`isPublished:true`のみ、admin/super_adminは全件。`keyword`/`categoryId`/`level`でフィルタ可 |
@@ -169,7 +172,7 @@
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `course_not_completed`(409) / `too_many_requests`(429)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `course_not_completed`(409) / `too_many_requests`(429) / `email_already_exists`(409) / `invalid_hire_date`(400) / `group_not_found`(400/404) / `file_required`(400) / `csv_validation_error`(400)
 
 **GET /v1/courses/:id/quiz**
 ```json
@@ -316,6 +319,32 @@
 **GET /v1/reports/groups/:id/csv**（admin/super_admin）
 `Content-Type: text/csv; charset=utf-8`（BOM付き）。列構成は`GET /v1/reports/users/csv`と同じ（対象をグループメンバーに限定）。
 
+**POST /v1/users**（admin/super_admin）
+```json
+// request（groupIdsは任意、指定した場合そのグループのメンバーとしても登録される）
+{ "lastName": "鈴木", "firstName": "花子", "email": "suzuki@example.com", "role": "learner",
+  "department": "営業部", "hireDate": "2024-04-01", "groupIds": ["..."] }
+// -> 201 { "user": { "id": "...", "email": "...", "lastName": "鈴木", ... } }
+// メールアドレス重複 -> 409 { "error": { "code": "email_already_exists", ... } }
+// groupIdsに存在しないIDが含まれる -> 400 { "error": { "code": "group_not_found", ... } }
+```
+初期パスワードはランダム生成し、本文に平文で記載したメールをResend経由で送信する（パスワードリセットのような「設定用リンク」方式ではない）。
+
+**POST /v1/users/import**（admin/super_admin、`multipart/form-data`）
+```
+file: (CSVファイル。ヘッダー行は 姓,名,メールアドレス,ロール,部署,入社日,グループ)
+```
+```json
+// -> 201 { "users": [ { "id": "...", "email": "...", ... } ], "count": 2 }
+// バリデーションエラー -> 400
+{ "error": { "code": "csv_validation_error", "message": "CSVの内容にエラーがあります",
+  "rowErrors": [ { "row": 2, "message": "メールアドレスの形式が不正です: ..." } ] } }
+```
+`row`はヘッダー行を除いた1始まりのデータ行番号。`グループ`列は`;`区切りで複数指定可、存在しないグループ名が1つでもあれば該当行がエラーになりCSV全体が中断される（何も作成されない）。
+
+**GET /v1/users/import/template**（admin/super_admin）
+`Content-Type: text/csv; charset=utf-8`（BOM付き）。ヘッダー行とサンプル行を1件含む。
+
 ## 未実装（別ブロック扱い）
 - 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別・グループ別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
-- ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）
+- ユーザーの削除（7.2.2）。新規作成（手動・CSV一括）、一覧取得、ロール変更、有効化無効化は実装済み

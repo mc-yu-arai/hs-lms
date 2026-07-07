@@ -3,11 +3,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3
 export class ApiError extends Error {
   status: number;
   code: string;
+  details?: unknown;
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, details?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -42,6 +44,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
       res.status,
       data?.error?.code ?? "unknown_error",
       data?.error?.message ?? `リクエストに失敗しました（HTTP ${res.status}）`,
+      data?.error,
     );
   }
 

@@ -237,6 +237,11 @@ export interface GroupDetail {
   courses: GroupCourseAssignment[];
 }
 
+export interface CsvRowError {
+  row: number;
+  message: string;
+}
+
 export interface GroupProgressReport {
   groupId: string;
   groupName: string;

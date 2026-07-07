@@ -83,6 +83,12 @@ export async function updateGroup(id: string, input: Partial<GroupInput>): Promi
   return data as Group | null;
 }
 
+export async function findGroupByName(name: string): Promise<Group | null> {
+  const { data, error } = await supabaseAdmin.from("groups").select("*").eq("name", name).maybeSingle();
+  if (error) throw error;
+  return data as Group | null;
+}
+
 export async function deleteGroup(id: string): Promise<void> {
   const { error } = await supabaseAdmin.from("groups").delete().eq("id", id);
   if (error) throw error;
