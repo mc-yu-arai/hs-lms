@@ -153,3 +153,22 @@ export interface CertificateVerifyResult {
     issuedAt: string;
   };
 }
+
+export interface UserProgressReportRow {
+  userId: string;
+  lastName: string;
+  firstName: string;
+  department: string | null;
+  courseCount: number;
+  completedCount: number;
+  averageProgressRate: number;
+}
+
+export interface CourseReportRow {
+  courseId: string;
+  title: string;
+  enrolledCount: number;
+  completedCount: number;
+  completionRate: number;
+  averageProgressRate: number;
+}

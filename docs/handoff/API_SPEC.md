@@ -38,6 +38,10 @@
 | POST | /v1/courses/:id/certificate | Bearer要 | 修了証発行。コース未修了なら409。既に発行済みなら200で既存レコード、新規発行なら201を返す（`UNIQUE(user_id, course_id)`による冪等） |
 | GET | /v1/courses/:id/certificate/download | Bearer要 | 修了証PDFダウンロード。未発行でも修了済みなら自動発行してから生成。`Content-Type: application/pdf` |
 | GET | /v1/certificates/:uuid/verify | 不要 | QRコード・共有URLからの検証用。`verification_uuid`で検索し、コース名・受講者氏名・発行日を返す（メールアドレス等は含めない）。見つからなければ404 |
+| GET | /v1/reports/users | 要・admin/super_admin限定 | 受講者別進捗一覧（全ユーザー対象。氏名・部署・受講コース数・修了数・平均進捗率） |
+| GET | /v1/reports/courses | 要・admin/super_admin限定 | コース別集計（受講者数・修了者数・修了率・平均進捗率） |
+| GET | /v1/reports/users/csv | 要・admin/super_admin限定 | 受講者別レポートのCSVダウンロード（BOM付きUTF-8） |
+| GET | /v1/reports/courses/csv | 要・admin/super_admin限定 | コース別レポートのCSVダウンロード（BOM付きUTF-8） |
 
 ### リクエスト/レスポンス例
 
@@ -215,7 +219,23 @@
 // 無効・存在しない -> 404 { "valid": false }
 ```
 
+**GET /v1/reports/users**（admin/super_admin）
+```json
+{ "users": [ { "userId": "...", "lastName": "鈴木", "firstName": "花子", "department": "営業部",
+  "courseCount": 3, "completedCount": 2, "averageProgressRate": 75.5 } ] }
+```
+全ユーザー（roleを問わない）が対象。`averageProgressRate`はそのユーザーの全enrollmentの`progress_rate`単純平均（enrollmentが無ければ0）。
+
+**GET /v1/reports/courses**（admin/super_admin）
+```json
+{ "courses": [ { "courseId": "...", "title": "新人研修", "enrolledCount": 10, "completedCount": 6,
+  "completionRate": 60, "averageProgressRate": 72.3 } ] }
+```
+
+**GET /v1/reports/users/csv**, **GET /v1/reports/courses/csv**
+`Content-Type: text/csv; charset=utf-8`（BOM付き）、`Content-Disposition: attachment`。列構成は上記JSONと同じ項目（氏名は姓名を結合）。
+
 ## 未実装（別ブロック扱い）
-- レポートAPI（7.2.4: `/reports/progress`, `/reports/mandatory`, `/reports/export`, `/reports/dashboard`）
+- 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
 - グループ管理（4.2.2）・通知/アラート機能（4.4.2）
 - ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）
