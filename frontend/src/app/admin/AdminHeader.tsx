@@ -18,6 +18,9 @@ export function AdminHeader() {
             <a href="/admin/reports" className="text-gray-600 transition-colors hover:text-gray-900">
               レポート
             </a>
+            <a href="/admin/notifications" className="text-gray-600 transition-colors hover:text-gray-900">
+              通知
+            </a>
           </nav>
         </div>
         <a href="/dashboard" className="text-sm text-gray-500 transition-colors hover:text-gray-700">

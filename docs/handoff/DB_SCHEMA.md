@@ -184,13 +184,40 @@ CREATE TABLE public.certificates (
 );
 ```
 
+## 通知・リマインダーブロックのテーブル
+`notification_settings`はシングルトン運用（1行のみ。無ければアプリ側でGET時にデフォルト値で自動作成）。`notification_logs`の`course_id`は3種類の通知（受講登録完了/コース修了/期限切れリマインダー）がいずれもコースに紐づくためNOT NULL。
+
+```sql
+CREATE TABLE public.notification_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reminder_days_before INTEGER NOT NULL DEFAULT 7,
+  auto_send_time TIME NOT NULL DEFAULT '09:00:00',
+  is_enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.notification_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id),
+  course_id UUID NOT NULL REFERENCES public.courses(id),
+  notification_type VARCHAR(30) NOT NULL CHECK (notification_type IN ('enrollment_completed', 'course_completed', 'due_date_reminder')),
+  is_success BOOLEAN NOT NULL,
+  error_message TEXT,
+  sent_at TIMESTAMP NOT NULL DEFAULT now()
+);
+```
+
+**期限切れリマインダーの重複送信防止**: 同じ(`user_id`, `course_id`)に対する`due_date_reminder`は、成功ログ（`is_success = true`）が1件でもあれば以後送信しない（自動実行・手動実行いずれも）。「期限のN日前に1回だけ知らせる」という設計。期限（`enrollments.due_date`）を変更した場合の再送はスコープ外。
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
 | `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | 適用済み（2026-07-01ユーザー確認） |
 | `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | 適用済み（2026-07-01。初回実行時は`public.set_updated_at()`未定義でエラーとなり、ファイル内で`CREATE OR REPLACE FUNCTION`として再定義＋`CREATE TABLE IF NOT EXISTS`化して再実行し成功） |
 | `supabase/migrations/20260702000001_create_quiz_tables.sql` | `quizzes`/`questions`/`choices`/`quiz_attempts`/`quiz_answers` 作成 | 適用済み（2026-07-03ユーザー確認） |
-| `supabase/migrations/20260706000001_create_certificates_table.sql` | `certificates` 作成 | 未適用（要Supabase側で実行） |
+| `supabase/migrations/20260706000001_create_certificates_table.sql` | `certificates` 作成 | 適用済み（2026-07-07ユーザー確認） |
+| `supabase/migrations/20260707000001_create_notification_tables.sql` | `notification_settings`/`notification_logs` 作成 | 適用済み（2026-07-07ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

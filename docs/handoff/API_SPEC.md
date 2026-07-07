@@ -42,6 +42,10 @@
 | GET | /v1/reports/courses | 要・admin/super_admin限定 | コース別集計（受講者数・修了者数・修了率・平均進捗率） |
 | GET | /v1/reports/users/csv | 要・admin/super_admin限定 | 受講者別レポートのCSVダウンロード（BOM付きUTF-8） |
 | GET | /v1/reports/courses/csv | 要・admin/super_admin限定 | コース別レポートのCSVダウンロード（BOM付きUTF-8） |
+| GET | /v1/admin/notification-settings | 要・admin/super_admin限定 | 通知設定取得。未作成ならデフォルト値（7日前・09:00:00・有効）で自動作成 |
+| PUT | /v1/admin/notification-settings | 要・admin/super_admin限定 | 通知設定更新（`reminderDaysBefore`/`autoSendTime`/`isEnabled`、いずれも任意） |
+| POST | /v1/admin/notifications/send-reminders | 要・admin/super_admin限定 | 期限切れリマインダーの手動送信実行。`node-cron`による自動実行と同じロジックを呼ぶ |
+| GET | /v1/admin/notifications/logs | 要・admin/super_admin限定 | 通知送信履歴一覧（新しい順。学習者氏名・コース名を付与） |
 
 ### リクエスト/レスポンス例
 
@@ -235,7 +239,33 @@
 **GET /v1/reports/users/csv**, **GET /v1/reports/courses/csv**
 `Content-Type: text/csv; charset=utf-8`（BOM付き）、`Content-Disposition: attachment`。列構成は上記JSONと同じ項目（氏名は姓名を結合）。
 
+**GET /v1/admin/notification-settings**（admin/super_admin）
+```json
+{ "settings": { "reminderDaysBefore": 7, "autoSendTime": "09:00:00", "isEnabled": true, "updatedAt": "..." } }
+```
+
+**PUT /v1/admin/notification-settings**（admin/super_admin）
+```json
+// request（フィールドは任意。autoSendTimeはHH:MMまたはHH:MM:SS形式）
+{ "reminderDaysBefore": 3, "autoSendTime": "18:30", "isEnabled": true }
+// response
+{ "settings": { ... } }
+```
+
+**POST /v1/admin/notifications/send-reminders**（admin/super_admin）
+```json
+{ "result": { "sent": 2, "skipped": 5, "failed": 0 } }
+```
+`skipped`は「期限切れ済み修了」「期限日が対象期間外」「同じ受講登録に対して過去に送信成功済み」のいずれか。
+
+**GET /v1/admin/notifications/logs**（admin/super_admin）
+```json
+{ "logs": [ { "id": "...", "learnerName": "山田 太郎", "courseTitle": "新人研修",
+  "notificationType": "course_completed", "isSuccess": true, "errorMessage": null, "sentAt": "..." } ] }
+```
+`notificationType`は`enrollment_completed` / `course_completed` / `due_date_reminder`のいずれか。
+
 ## 未実装（別ブロック扱い）
 - 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
-- グループ管理（4.2.2）・通知/アラート機能（4.4.2）
+- グループ管理（4.2.2）
 - ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）

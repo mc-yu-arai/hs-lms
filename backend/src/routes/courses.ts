@@ -5,6 +5,7 @@ import { asyncHandler, HttpError } from "../middleware/errorHandler";
 import { requireAuth, requireRole } from "../middleware/requireAuth";
 import { findOrCreateCertificate } from "../services/certificateRepository";
 import { generateCertificatePdf } from "../services/certificatePdfService";
+import { notifyEnrollmentCompleted, notifyCourseCompleted } from "../services/notificationService";
 import {
   listCourses,
   getCourseById,
@@ -219,6 +220,7 @@ coursesRouter.post(
     }
 
     const enrollment = await createEnrollment(req.appUser!.id, course.id);
+    await notifyEnrollmentCompleted(req.appUser!.id, course.id);
     return res.status(201).json({ enrollment });
   }),
 );
@@ -291,6 +293,8 @@ coursesRouter.put(
       throw new HttpError(404, "lesson_not_found", "レッスンが見つかりません");
     }
 
+    const wasCompleted = enrollment.status === "completed";
+
     const input = lessonProgressSchema.parse(req.body);
     await upsertLessonProgress(enrollment.id, lesson.id, lesson.content_type, input);
 
@@ -303,6 +307,10 @@ coursesRouter.put(
       quizRequirementMet,
       input.studyTimeDeltaSeconds ?? 0,
     );
+
+    if (!wasCompleted && updatedEnrollment.status === "completed") {
+      await notifyCourseCompleted(req.appUser!.id, course.id);
+    }
 
     return res.status(200).json({
       enrollment: {
@@ -425,12 +433,18 @@ coursesRouter.post(
     const quiz = await getQuizByCourseId(course.id);
     if (!quiz) throw new HttpError(404, "quiz_not_found", "このコースにテストは設定されていません");
 
+    const wasCompleted = enrollment.status === "completed";
+
     const { answers } = quizAttemptSchema.parse(req.body);
     const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, course.pass_score);
 
     const totalLessonCount = await countLessonsForCourse(course.id);
     const quizRequirementMet = await hasPassedQuiz(enrollment.id, quiz.id);
     const updatedEnrollment = await recalculateEnrollmentProgress(enrollment.id, totalLessonCount, quizRequirementMet, 0);
+
+    if (!wasCompleted && updatedEnrollment.status === "completed") {
+      await notifyCourseCompleted(req.appUser!.id, course.id);
+    }
 
     return res.status(201).json({
       attempt: { id: attempt.id, score: attempt.score, isPassed: attempt.is_passed, submittedAt: attempt.submitted_at },

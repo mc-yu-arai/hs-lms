@@ -172,3 +172,28 @@ export interface CourseReportRow {
   completionRate: number;
   averageProgressRate: number;
 }
+
+export interface NotificationSettings {
+  reminderDaysBefore: number;
+  autoSendTime: string;
+  isEnabled: boolean;
+  updatedAt: string;
+}
+
+export type NotificationType = "enrollment_completed" | "course_completed" | "due_date_reminder";
+
+export interface NotificationLog {
+  id: string;
+  learnerName: string;
+  courseTitle: string;
+  notificationType: NotificationType;
+  isSuccess: boolean;
+  errorMessage: string | null;
+  sentAt: string;
+}
+
+export interface SendRemindersResult {
+  sent: number;
+  skipped: number;
+  failed: number;
+}

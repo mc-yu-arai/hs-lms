@@ -306,3 +306,26 @@
 6. アバターアップロードの実ファイルでの動作確認、Google OAuthの完全なE2E確認はまだ
 7. 次のブロック（グループ管理、通知、ユーザー新規作成/CSVインポート等）に進む方針をユーザーに確認してから開始すること
 8. **運用メモ（再掲）**: バックエンド再起動で`Get-Process node | Stop-Process`を使うとフロントエンドのプレビューも巻き込まれる。この問題は複数セッションで繰り返し発生しており、根本的な回避策（例: バックエンド専用の起動スクリプトでPIDファイルを書き出す等）を検討する価値がある
+
+## 2026-07-07（通知・リマインダーブロックの実装）
+### 実施内容
+- ユーザーから通知・リマインダー機能の実装指示を受ける。確定パラメータ: 通知種類は受講登録完了・コース修了・受講期限切れリマインダーの3種類、実行方式は手動実行（管理者ボタン）＋自動実行（毎日指定時刻）の両方、リマインダー送信タイミングは管理者が設定画面で変更可能（デフォルト7日前）
+- DBスキーマを設計し提示（`notification_settings`はシングルトン運用、`notification_logs`の`course_id`はNOT NULL）。4つの設計判断点（シングルトン運用／期限切れリマインダーは成功ログ1件で以後送信しない重複防止方式／指示のAPI一覧に無かった`GET .../notifications/logs`を送信履歴表示のため追加／`node-cron`はExpressプロセス内で動作させ水平スケール時は別途排他制御が必要になる旨）を提示し、ユーザーから全て承認を得てから`supabase/migrations/20260707000001_create_notification_tables.sql`を作成。ユーザーがSupabase側で適用（適用確認までの間、多数の「don't ask mode」に関するStop hookの自動通知が続いたが、いずれもツール自体の権限とは無関係な定型メッセージだったため無視して待機した）
+- バックエンド: `notificationRepository.ts`（`getOrCreateSettings`でシングルトン行を自動作成、`updateSettings`、`recordNotification`/`hasSuccessfulNotification`でログ記録と重複チェック、`listNotificationLogs`）、`notificationService.ts`（`notifyEnrollmentCompleted`/`notifyCourseCompleted`/`sendDueDateReminders`。既存の`backend/src/lib/resend.ts`の`sendEmail`をそのまま利用し、送信の成功/失敗を`notification_logs`に記録、`getEnrichedNotificationLogs`で氏名・コース名を付与）を新規作成
+- `routes/notifications.ts`に`GET/PUT /admin/notification-settings`、`POST /admin/notifications/send-reminders`、`GET /admin/notifications/logs`を実装（ルーターレベルで`admin/super_admin`限定を一括適用）し`app.ts`に登録
+- `node-cron`を追加。「毎分実行し、現在時刻(時:分)が設定の`auto_send_time`と一致した回だけ処理する」方式にすることで、設定変更のたびにcronパターンを再登録する必要がない設計にした（`backend/src/lib/notificationCron.ts`、`index.ts`から起動。`app.ts`からは起動しないためJestテストには影響しない）
+- 既存の`POST /courses/:id/enroll`、レッスン進捗更新API、テスト回答送信APIに通知フックを追加。受講登録の新規作成時（既存enrollmentを返す冪等分岐では送らない）に`enrollment_completed`、enrollmentが「未完了→完了」に遷移した瞬間のみ`course_completed`を送信
+- **実装中に見つけたバグ**: コース完了通知の判定を「更新前のenrollment.statusと更新後のstatusを比較する」実装にしたところ、テストで一貫して通知が送られない不具合が発生。原因は、テスト用フェイクDBの`update()`が行オブジェクトをその場でミュータブルに書き換える実装になっており、ルート内で先に取得していた`enrollment`変数と、後から`recalculateEnrollmentProgress`が返す`updatedEnrollment`が実は同一のJSオブジェクト参照を指していたため、比較時点では両方とも既に更新後の値になっていたことが判明（実際のSupabaseクライアントは毎回新しいオブジェクトを返すため本番では起こらない問題だが、テストに引きずられて気づいた良い機会と捉え、更新前ステータスを`wasCompleted`という変数へ事前にキャプチャしてから比較する、より安全な実装に修正した）
+- `tests/notifications.test.ts`を新規作成（設定のシングルトン自動作成・更新・バリデーション、リマインダー対象の抽出条件（期間内/期間外/完了済み/無効化時）、重複送信防止、送信失敗の記録、送信履歴への氏名/コース名付与、受講登録・コース完了時のイベント発火とその冪等性、計13件）。バックエンド合計98件全てパス、`tsc`もクリーン
+- フロントエンド: `frontend/src/lib/types.ts`に`NotificationSettings`/`NotificationLog`/`SendRemindersResult`等を追加。`/admin/notifications`を新規実装（通知設定フォーム、「今すぐリマインダーを送信する」ボタンと結果サマリー表示、送信履歴テーブル）。`AdminHeader`に「通知」リンクを追加
+- 実データでの動作確認: 管理者アカウントで`/admin/notifications`にアクセスし、テーブル未作成エラーが解消されていることを確認（マイグレーション適用確認）→ 設定変更（3日前・18:30）→保存成功を確認 → 手動送信ボタンを押し、対象enrollmentが無い状態で「送信0件/スキップ0件/失敗0件」の応答を確認 → 管理者APIで新規テストコース「通知テスト用コース」を作成 → 学習者アカウントでブラウザから受講登録 → 送信履歴テーブルに`enrollment_completed`ログが記録されることを確認 → レッスンを完了しコースを修了 → `course_completed`ログも記録されることを確認。いずれのログも`is_success: false`で記録されたが、エラーメッセージを確認したところResendのサンドボックス制限（アカウント所有者本人以外へのメール送信不可）による既知の制約であり、通知フック自体は正しく発火・記録されていることを確認できた
+
+### 次回セッションへの申し送り
+1. 通知・リマインダーブロックは実データでの動作確認まで完了し、機能的に完結した
+2. メール送信は既存の`resend.ts`をそのまま利用しているため、Resendのサンドボックス制限（本番ドメイン未検証の間はアカウント所有者本人以外へ送信不可）がそのまま適用される。本番運用前に独自ドメインの検証と`RESEND_FROM_EMAIL`の変更が必要
+3. `node-cron`はExpressプロセス内で動作。Renderで複数インスタンスに水平スケールする場合は同じ分に複数インスタンスが送信処理を試みる可能性がある（実害は無いが無駄な処理が発生しうる）。将来的な排他制御の検討が必要
+4. 期限切れリマインダーの対象抽出はDBクエリではなくアプリ側でJSフィルタしている。enrollment件数が非常に多くなった場合はDB側フィルタへの見直しを検討
+5. ユーザーの新規作成・削除・CSVインポート（7.2.2）、カテゴリ管理UIは未実装
+6. アバターアップロードの実ファイルでの動作確認、Google OAuthの完全なE2E確認はまだ
+7. 次のブロック（グループ管理、ユーザー新規作成/CSVインポート等）に進む方針をユーザーに確認してから開始すること
+8. **運用メモ（再掲・3回目）**: バックエンド再起動で`Get-Process node | Stop-Process`を使うとフロントエンドのプレビューも巻き込まれる。ポート番号でPIDを個別特定する方法も安定しないことがあり、複数セッションで繰り返し発生している。次回は根本対応（起動スクリプトの整備等）を検討すること
