@@ -210,6 +210,41 @@ CREATE TABLE public.notification_logs (
 
 **期限切れリマインダーの重複送信防止**: 同じ(`user_id`, `course_id`)に対する`due_date_reminder`は、成功ログ（`is_success = true`）が1件でもあれば以後送信しない（自動実行・手動実行いずれも）。「期限のN日前に1回だけ知らせる」という設計。期限（`enrollments.due_date`）を変更した場合の再送はスコープ外。
 
+## グループ管理ブロックのテーブル
+`groups`はグループ本体、`group_members`/`group_courses`は多対多の中間テーブル。いずれも独自`id`＋`UNIQUE`制約の組み合わせで、追加・割り当てAPIの冪等性を担保する（`enrollments`/`certificates`と同じ設計方針）。`group_members.user_id`/`group_courses.course_id`は`ON DELETE CASCADE`だが、これはグループ側の紐付け行を消すだけで、対応する`enrollments`は削除しない。
+
+```sql
+CREATE TABLE public.groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.group_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  added_at TIMESTAMP NOT NULL DEFAULT now(),
+  UNIQUE (group_id, user_id)
+);
+
+CREATE TABLE public.group_courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+  course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMP NOT NULL DEFAULT now(),
+  UNIQUE (group_id, course_id)
+);
+```
+
+**受講登録の自動作成（設計判断）**:
+- コースをグループに割り当てた時点（`POST /groups/:id/courses`）で、そのグループの現メンバー全員のうち、そのコースにまだ`enrollments`が無いユーザーにのみ受講登録を自動作成する（`backend/src/services/groupService.ts`の`assignGroupCourseAndSyncEnrollments`）。
+- 逆に、グループに既にコースが割り当て済みの状態で新規メンバーを追加した場合（`POST /groups/:id/members`）も、その時点で割り当て済みの全コースに対して同様に受講登録を自動作成する（`addGroupMemberAndSyncEnrollments`）。
+- どちらも`findEnrollment`で既存有無を確認してから作成する冪等設計（既存の`POST /courses/:id/enroll`と同じ判断基準）。作成時は`notifyEnrollmentCompleted`も呼び出し、通知ブロックの`enrollment_completed`ログに記録される。
+- メンバー削除・コース割り当て解除・グループ削除のいずれも、既に作成された`enrollments`（進捗含む）はそのまま残す。グループはあくまで「受講登録を一括で作る/管理する」ための入り口であり、受講履歴の所有権はグループに紐付けない設計とした。
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
@@ -218,6 +253,7 @@ CREATE TABLE public.notification_logs (
 | `supabase/migrations/20260702000001_create_quiz_tables.sql` | `quizzes`/`questions`/`choices`/`quiz_attempts`/`quiz_answers` 作成 | 適用済み（2026-07-03ユーザー確認） |
 | `supabase/migrations/20260706000001_create_certificates_table.sql` | `certificates` 作成 | 適用済み（2026-07-07ユーザー確認） |
 | `supabase/migrations/20260707000001_create_notification_tables.sql` | `notification_settings`/`notification_logs` 作成 | 適用済み（2026-07-07ユーザー確認） |
+| `supabase/migrations/20260707000002_create_group_tables.sql` | `groups`/`group_members`/`group_courses` 作成 | 適用済み（2026-07-07ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）
@@ -226,3 +262,5 @@ CREATE TABLE public.notification_logs (
 - `chapters.course_id` → `courses.id`、`lessons.chapter_id` → `chapters.id`
 - `enrollments.user_id` → `users.id`、`enrollments.course_id` → `courses.id`（UNIQUE制約で1ユーザー1コースにつき1レコード）
 - `lesson_progress.enrollment_id` → `enrollments.id`、`lesson_progress.lesson_id` → `lessons.id`（UNIQUE制約で1受講あたり1レッスンにつき1レコード）
+- `group_members.group_id` → `groups.id`、`group_members.user_id` → `users.id`（UNIQUE制約で1グループ1ユーザーにつき1レコード）
+- `group_courses.group_id` → `groups.id`、`group_courses.course_id` → `courses.id`（UNIQUE制約で1グループ1コースにつき1レコード）。`enrollments`への直接の外部キーは持たない（グループ経由で作成された受講登録も通常の`enrollments`行として扱われ、グループとの追跡用リンクは無い）

@@ -197,3 +197,50 @@ export interface SendRemindersResult {
   skipped: number;
   failed: number;
 }
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  memberCount?: number;
+  courseCount?: number;
+}
+
+export interface GroupMember {
+  id: string;
+  addedAt: string;
+  user: {
+    id: string;
+    lastName: string;
+    firstName: string;
+    email: string;
+    department: string | null;
+  };
+}
+
+export interface GroupCourseAssignment {
+  id: string;
+  assignedAt: string;
+  course: {
+    id: string;
+    title: string;
+    level: "beginner" | "intermediate" | "advanced";
+    isPublished: boolean;
+  };
+}
+
+export interface GroupDetail {
+  group: Group;
+  members: GroupMember[];
+  courses: GroupCourseAssignment[];
+}
+
+export interface GroupProgressReport {
+  groupId: string;
+  groupName: string;
+  members: UserProgressReportRow[];
+  memberCount: number;
+  averageCompletionRate: number;
+}

@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { asyncHandler } from "../middleware/errorHandler";
+import { asyncHandler, HttpError } from "../middleware/errorHandler";
 import { requireAuth, requireRole } from "../middleware/requireAuth";
-import { getUserProgressReport, getCourseReport } from "../services/reportRepository";
+import { getUserProgressReport, getCourseReport, getGroupProgressReport } from "../services/reportRepository";
 
 export const reportsRouter = Router();
 
@@ -57,6 +57,31 @@ reportsRouter.get(
     );
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="courses_report.csv"');
+    return res.status(200).send(csv);
+  }),
+);
+
+reportsRouter.get(
+  "/groups/:id",
+  asyncHandler(async (req, res) => {
+    const report = await getGroupProgressReport(req.params.id);
+    if (!report) throw new HttpError(404, "group_not_found", "グループが見つかりません");
+    return res.status(200).json({ report });
+  }),
+);
+
+reportsRouter.get(
+  "/groups/:id/csv",
+  asyncHandler(async (req, res) => {
+    const report = await getGroupProgressReport(req.params.id);
+    if (!report) throw new HttpError(404, "group_not_found", "グループが見つかりません");
+
+    const csv = toCsv(
+      ["氏名", "部署", "受講コース数", "修了数", "平均進捗率(%)"],
+      report.members.map((m) => [`${m.lastName} ${m.firstName}`, m.department ?? "", m.courseCount, m.completedCount, m.averageProgressRate]),
+    );
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="group_${report.groupId}_report.csv"`);
     return res.status(200).send(csv);
   }),
 );

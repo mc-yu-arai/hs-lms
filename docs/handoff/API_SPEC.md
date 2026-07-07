@@ -46,6 +46,17 @@
 | PUT | /v1/admin/notification-settings | 要・admin/super_admin限定 | 通知設定更新（`reminderDaysBefore`/`autoSendTime`/`isEnabled`、いずれも任意） |
 | POST | /v1/admin/notifications/send-reminders | 要・admin/super_admin限定 | 期限切れリマインダーの手動送信実行。`node-cron`による自動実行と同じロジックを呼ぶ |
 | GET | /v1/admin/notifications/logs | 要・admin/super_admin限定 | 通知送信履歴一覧（新しい順。学習者氏名・コース名を付与） |
+| GET | /v1/groups | 要・admin/super_admin限定 | グループ一覧（メンバー数・割当コース数を含む） |
+| POST | /v1/groups | 要・admin/super_admin限定 | グループ新規作成（`name`必須・`description`任意） |
+| GET | /v1/groups/:id | 要・admin/super_admin限定 | グループ詳細（メンバー一覧・割当コース一覧を含む） |
+| PUT | /v1/groups/:id | 要・admin/super_admin限定 | グループ更新（`name`/`description`、いずれも任意） |
+| DELETE | /v1/groups/:id | 要・admin/super_admin限定 | グループ削除。`group_members`/`group_courses`はON DELETE CASCADEで削除されるが、既存の`enrollments`には影響しない |
+| POST | /v1/groups/:id/members | 要・admin/super_admin限定 | メンバー追加（`userId`必須）。既に所属済みなら冪等に既存行を返す。そのグループに割当済みのコースがあれば、対象ユーザーに未登録のもののみ受講登録を自動作成（`enrollment_completed`通知も発火） |
+| DELETE | /v1/groups/:id/members | 要・admin/super_admin限定 | メンバー削除（`userId`必須）。グループとの紐付けのみ解除し、既存の`enrollments`（進捗含む）は削除しない |
+| POST | /v1/groups/:id/courses | 要・admin/super_admin限定 | コース割り当て（`courseId`必須）。既に割当済みなら冪等に既存行を返す。現在のグループメンバー全員のうち、そのコースに未登録のユーザーのみ受講登録を自動作成（`enrollment_completed`通知も発火） |
+| DELETE | /v1/groups/:id/courses | 要・admin/super_admin限定 | コース割り当て解除（`courseId`必須）。グループとの紐付けのみ解除し、既存の`enrollments`（進捗含む）は削除しない |
+| GET | /v1/reports/groups/:id | 要・admin/super_admin限定 | グループ別進捗レポート（メンバーごとの受講コース数・修了数・平均進捗率、グループ全体の平均修了率）。グループが存在しなければ404 |
+| GET | /v1/reports/groups/:id/csv | 要・admin/super_admin限定 | グループ別レポートのCSVダウンロード（BOM付きUTF-8） |
 
 ### リクエスト/レスポンス例
 
@@ -265,7 +276,46 @@
 ```
 `notificationType`は`enrollment_completed` / `course_completed` / `due_date_reminder`のいずれか。
 
+**GET /v1/groups**（admin/super_admin）
+```json
+{ "groups": [ { "id": "...", "name": "営業チーム", "description": "...", "createdAt": "...", "updatedAt": "...",
+  "memberCount": 5, "courseCount": 2 } ] }
+```
+
+**GET /v1/groups/:id**（admin/super_admin）
+```json
+{ "group": { "id": "...", "name": "営業チーム", "description": "...", "createdAt": "...", "updatedAt": "..." },
+  "members": [ { "id": "...", "addedAt": "...",
+    "user": { "id": "...", "lastName": "山田", "firstName": "太郎", "email": "...", "department": "営業部" } } ],
+  "courses": [ { "id": "...", "assignedAt": "...",
+    "course": { "id": "...", "title": "新人研修", "level": "beginner", "isPublished": true } } ] }
+```
+
+**POST /v1/groups/:id/members**（admin/super_admin）
+```json
+// request
+{ "userId": "..." }
+// -> 201 { "member": { "id": "...", "addedAt": "...", "userId": "..." } }
+```
+
+**POST /v1/groups/:id/courses**（admin/super_admin）
+```json
+// request
+{ "courseId": "..." }
+// -> 201 { "groupCourse": { "id": "...", "assignedAt": "...", "courseId": "..." } }
+```
+
+**GET /v1/reports/groups/:id**（admin/super_admin）
+```json
+{ "report": { "groupId": "...", "groupName": "営業チーム", "memberCount": 5, "averageCompletionRate": 62.5,
+  "members": [ { "userId": "...", "lastName": "山田", "firstName": "太郎", "department": "営業部",
+    "courseCount": 3, "completedCount": 2, "averageProgressRate": 75.5 } ] } }
+```
+`averageCompletionRate`はメンバーごとの「修了数/受講コース数」を単純平均したもの（受講コース数0のメンバーは0%として算入）。グループが存在しなければ404。
+
+**GET /v1/reports/groups/:id/csv**（admin/super_admin）
+`Content-Type: text/csv; charset=utf-8`（BOM付き）。列構成は`GET /v1/reports/users/csv`と同じ（対象をグループメンバーに限定）。
+
 ## 未実装（別ブロック扱い）
-- 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
-- グループ管理（4.2.2）
+- 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別・グループ別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
 - ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）

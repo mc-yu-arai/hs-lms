@@ -12,6 +12,7 @@ import { coursesRouter } from "./routes/courses";
 import { certificatesRouter } from "./routes/certificates";
 import { reportsRouter } from "./routes/reports";
 import { notificationsRouter } from "./routes/notifications";
+import { groupsRouter } from "./routes/groups";
 import { apiRateLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
@@ -40,6 +41,7 @@ export function createApp() {
   app.use("/v1/certificates", certificatesRouter);
   app.use("/v1/reports", reportsRouter);
   app.use("/v1/admin", notificationsRouter);
+  app.use("/v1/groups", groupsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
