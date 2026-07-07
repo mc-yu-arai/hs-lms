@@ -170,12 +170,27 @@ CREATE TABLE public.quiz_answers (
 
 **コース完了判定の拡張**: `courseRepository.ts`の`recalculateEnrollmentProgress`に`quizRequirementMet: boolean`引数を追加し、「全レッスン完了 && quizRequirementMet」で判定するよう変更。`quizRequirementMet`は「そのコースにテストが存在しない」または「そのenrollmentに合格済みの受験履歴が1件でもある」場合に`true`。呼び出し元（レッスン進捗更新API、テスト回答送信API）の両方で算出して渡す。
 
+## 修了証発行ブロックのテーブル
+`id`（内部主キー）と`verification_uuid`（QRコード・公開検証URL専用トークン）を分離。`UNIQUE(user_id, course_id)`で1ユーザー1コースにつき1枚のみとし、発行APIの冪等性をこの制約で担保する。発行条件（コース修了済みのみ）はDB制約ではなくアプリ側（`enrollments.status === 'completed'`）でチェックする。
+
+```sql
+CREATE TABLE public.certificates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id),
+  course_id UUID NOT NULL REFERENCES public.courses(id),
+  issued_at TIMESTAMP NOT NULL DEFAULT now(),
+  verification_uuid UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  UNIQUE (user_id, course_id)
+);
+```
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
 | `supabase/migrations/20260701000001_create_users_table.sql` | `public.users` 作成、updated_at トリガー、RLS有効化 | 適用済み（2026-07-01ユーザー確認） |
 | `supabase/migrations/20260701000002_create_courses_tables.sql` | `categories`/`courses`/`chapters`/`lessons`/`enrollments`/`lesson_progress` 作成 | 適用済み（2026-07-01。初回実行時は`public.set_updated_at()`未定義でエラーとなり、ファイル内で`CREATE OR REPLACE FUNCTION`として再定義＋`CREATE TABLE IF NOT EXISTS`化して再実行し成功） |
 | `supabase/migrations/20260702000001_create_quiz_tables.sql` | `quizzes`/`questions`/`choices`/`quiz_attempts`/`quiz_answers` 作成 | 適用済み（2026-07-03ユーザー確認） |
+| `supabase/migrations/20260706000001_create_certificates_table.sql` | `certificates` 作成 | 未適用（要Supabase側で実行） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

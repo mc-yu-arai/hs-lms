@@ -48,6 +48,26 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   return data as T;
 }
 
+export async function apiFetchBlob(path: string, options: { accessToken?: string } = {}): Promise<Blob> {
+  const headers = new Headers();
+  if (options.accessToken) headers.set("Authorization", `Bearer ${options.accessToken}`);
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { headers });
+
+  if (!res.ok) {
+    let code = "unknown_error";
+    let message = `リクエストに失敗しました（HTTP ${res.status}）`;
+    if (res.headers.get("content-type")?.includes("application/json")) {
+      const data = (await res.json().catch(() => null)) as ApiErrorBody | null;
+      code = data?.error?.code ?? code;
+      message = data?.error?.message ?? message;
+    }
+    throw new ApiError(res.status, code, message);
+  }
+
+  return res.blob();
+}
+
 export function googleLoginUrl(): string {
   return `${API_BASE_URL}/v1/auth/oauth/google`;
 }

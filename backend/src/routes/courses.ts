@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
+import { env } from "../config/env";
 import { asyncHandler, HttpError } from "../middleware/errorHandler";
 import { requireAuth, requireRole } from "../middleware/requireAuth";
+import { findOrCreateCertificate } from "../services/certificateRepository";
+import { generateCertificatePdf } from "../services/certificatePdfService";
 import {
   listCourses,
   getCourseById,
@@ -460,5 +463,60 @@ coursesRouter.get(
     return res.status(200).json({
       attempts: attempts.map((a) => ({ id: a.id, score: a.score, isPassed: a.is_passed, submittedAt: a.submitted_at })),
     });
+  }),
+);
+
+async function requireCompletedEnrollment(userId: string, courseId: string) {
+  const enrollment = await findEnrollment(userId, courseId);
+  if (!enrollment || enrollment.status !== "completed") {
+    throw new HttpError(409, "course_not_completed", "このコースはまだ修了していません");
+  }
+  return enrollment;
+}
+
+coursesRouter.post(
+  "/:id/certificate",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    await requireCompletedEnrollment(req.appUser!.id, course.id);
+    const { certificate, created } = await findOrCreateCertificate(req.appUser!.id, course.id);
+
+    return res.status(created ? 201 : 200).json({
+      certificate: {
+        id: certificate.id,
+        courseId: certificate.course_id,
+        issuedAt: certificate.issued_at,
+        verificationUuid: certificate.verification_uuid,
+      },
+    });
+  }),
+);
+
+coursesRouter.get(
+  "/:id/certificate/download",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    await requireCompletedEnrollment(req.appUser!.id, course.id);
+    const { certificate } = await findOrCreateCertificate(req.appUser!.id, course.id);
+
+    const learnerName = `${req.appUser!.last_name} ${req.appUser!.first_name}`;
+    const verifyUrl = `${env.FRONTEND_URL}/certificates/${certificate.verification_uuid}`;
+
+    const pdfBuffer = await generateCertificatePdf({
+      learnerName,
+      courseTitle: course.title,
+      issuedAt: certificate.issued_at,
+      verifyUrl,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", 'attachment; filename="certificate.pdf"');
+    return res.status(200).send(pdfBuffer);
   }),
 );

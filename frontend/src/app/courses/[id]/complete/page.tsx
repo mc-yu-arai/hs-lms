@@ -76,13 +76,21 @@ export default function CourseCompletePage() {
           </>
         )}
 
-        <div className="flex justify-center gap-4">
+        <div className="flex flex-wrap justify-center gap-4">
           {!isActuallyCompleted && (
             <a
               href={`/courses/${courseId}`}
               className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
             >
               コースに戻る
+            </a>
+          )}
+          {isActuallyCompleted && (
+            <a
+              href={`/courses/${courseId}/certificate`}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              修了証を見る
             </a>
           )}
           <a

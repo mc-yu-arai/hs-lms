@@ -119,31 +119,39 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {enrollments?.map((enrollment) => (
-              <a
-                key={enrollment.id}
-                href={`/courses/${enrollment.course.id}`}
-                className="block rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[enrollment.status]}`}>
-                    {STATUS_LABEL[enrollment.status]}
-                  </span>
-                  {enrollment.course.isMandatory && (
-                    <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">必須</span>
-                  )}
-                </div>
-                <h3 className="text-sm font-semibold text-gray-900">{enrollment.course.title}</h3>
-
-                <div className="mt-3">
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-blue-600"
-                      style={{ width: `${Math.min(100, Math.max(0, enrollment.progressRate))}%` }}
-                    />
+              <div key={enrollment.id} className="relative rounded-xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+                <a href={`/courses/${enrollment.course.id}`} className="absolute inset-0" aria-label={enrollment.course.title} />
+                <div className="pointer-events-none">
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[enrollment.status]}`}>
+                      {STATUS_LABEL[enrollment.status]}
+                    </span>
+                    {enrollment.course.isMandatory && (
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">必須</span>
+                    )}
                   </div>
-                  <p className="mt-1 text-xs text-gray-400">進捗率: {enrollment.progressRate}%</p>
+                  <h3 className="text-sm font-semibold text-gray-900">{enrollment.course.title}</h3>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-blue-600"
+                        style={{ width: `${Math.min(100, Math.max(0, enrollment.progressRate))}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-400">進捗率: {enrollment.progressRate}%</p>
+                  </div>
                 </div>
-              </a>
+
+                {enrollment.status === "completed" && (
+                  <a
+                    href={`/courses/${enrollment.course.id}/certificate`}
+                    className="relative z-10 mt-3 inline-block text-xs font-medium text-blue-600 hover:underline"
+                  >
+                    修了証を見る
+                  </a>
+                )}
+              </div>
             ))}
           </div>
         </section>

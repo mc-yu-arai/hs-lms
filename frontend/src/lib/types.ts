@@ -137,3 +137,19 @@ export interface QuizAttemptSummary {
   isPassed: boolean;
   submittedAt: string;
 }
+
+export interface CertificateInfo {
+  id: string;
+  courseId: string;
+  issuedAt: string;
+  verificationUuid: string;
+}
+
+export interface CertificateVerifyResult {
+  valid: boolean;
+  certificate?: {
+    courseTitle: string;
+    learnerName: string;
+    issuedAt: string;
+  };
+}

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, ApiError, type ApiFetchOptions } from "./api";
+import { apiFetch, apiFetchBlob, ApiError, type ApiFetchOptions } from "./api";
 import type { AuthUser } from "./types";
 
 const STORAGE_KEY = "hslms.session";
@@ -22,6 +22,7 @@ interface AuthContextValue {
   loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   authFetch: <T>(path: string, options?: ApiFetchOptions) => Promise<T>;
+  authFetchBlob: (path: string) => Promise<Blob>;
   refreshUser: () => Promise<void>;
 }
 
@@ -130,6 +131,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [session, persist, logout],
   );
 
+  const authFetchBlob = useCallback(
+    async (path: string): Promise<Blob> => {
+      if (!session) throw new ApiError(401, "unauthorized", "ログインが必要です");
+
+      try {
+        return await apiFetchBlob(path, { accessToken: session.accessToken });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          try {
+            const refreshed = await apiFetch<{ accessToken: string; refreshToken: string }>("/v1/auth/refresh", {
+              method: "POST",
+              body: { refreshToken: session.refreshToken },
+            });
+            const nextSession = { ...session, accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken };
+            persist(nextSession);
+            return await apiFetchBlob(path, { accessToken: refreshed.accessToken });
+          } catch {
+            await logout();
+          }
+        }
+        throw err;
+      }
+    },
+    [session, persist, logout],
+  );
+
   const refreshUser = useCallback(async () => {
     if (!session) return;
     const { user } = await authFetch<{ user: AuthUser }>("/v1/users/me");
@@ -144,9 +171,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loginWithTokens,
       logout,
       authFetch,
+      authFetchBlob,
       refreshUser,
     }),
-    [session, isLoading, setSession, loginWithTokens, logout, authFetch, refreshUser],
+    [session, isLoading, setSession, loginWithTokens, logout, authFetch, authFetchBlob, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

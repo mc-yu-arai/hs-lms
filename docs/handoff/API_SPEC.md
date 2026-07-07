@@ -35,6 +35,9 @@
 | POST | /v1/courses/:id/quiz | 要・admin/super_admin限定 | テスト作成・全置換（`questions`配列をネストで受け取る。1コース1テスト）。既存の受験履歴(quiz_attempts)は設問のON DELETE CASCADEで一緒に削除される点に注意 |
 | POST | /v1/courses/:id/quiz/attempts | Bearer要 | 回答送信・採点。設問ごとに選択肢集合が完全一致すれば正解、`(正解数/設問数)×100`が得点。`score >= courses.pass_score`で合格。無制限に再受験可。enrollmentの完了判定も同時に再計算 |
 | GET | /v1/courses/:id/quiz/attempts | Bearer要 | 自分の受験履歴一覧（得点・合否・受験日時、新しい順） |
+| POST | /v1/courses/:id/certificate | Bearer要 | 修了証発行。コース未修了なら409。既に発行済みなら200で既存レコード、新規発行なら201を返す（`UNIQUE(user_id, course_id)`による冪等） |
+| GET | /v1/courses/:id/certificate/download | Bearer要 | 修了証PDFダウンロード。未発行でも修了済みなら自動発行してから生成。`Content-Type: application/pdf` |
+| GET | /v1/certificates/:uuid/verify | 不要 | QRコード・共有URLからの検証用。`verification_uuid`で検索し、コース名・受講者氏名・発行日を返す（メールアドレス等は含めない）。見つからなければ404 |
 
 ### リクエスト/レスポンス例
 
@@ -147,7 +150,7 @@
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `too_many_requests`(429)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `course_not_completed`(409) / `too_many_requests`(429)
 
 **GET /v1/courses/:id/quiz**
 ```json
@@ -197,8 +200,22 @@
 // 自分自身のidを指定した場合 -> 400 { "error": { "code": "self_modification_forbidden", ... } }
 ```
 
+**POST /v1/courses/:id/certificate**
+```json
+// -> 201（新規）または200（既存） { "certificate": { "id": "...", "courseId": "...", "issuedAt": "...", "verificationUuid": "..." } }
+// 未修了 -> 409 { "error": { "code": "course_not_completed", ... } }
+```
+
+**GET /v1/courses/:id/certificate/download**
+`Content-Type: application/pdf`、`Content-Disposition: attachment; filename="certificate.pdf"`でPDFバイナリを返す。未修了なら409。
+
+**GET /v1/certificates/:uuid/verify**
+```json
+// 有効 -> 200 { "valid": true, "certificate": { "courseTitle": "...", "learnerName": "山田 太郎", "issuedAt": "..." } }
+// 無効・存在しない -> 404 { "valid": false }
+```
+
 ## 未実装（別ブロック扱い）
-- 修了証発行（3.2.4。テスト合格が前提のためテスト機能ブロック後）
 - レポートAPI（7.2.4: `/reports/progress`, `/reports/mandatory`, `/reports/export`, `/reports/dashboard`）
 - グループ管理（4.2.2）・通知/アラート機能（4.4.2）
 - ユーザーの新規作成・削除・CSVインポート（7.2.2）。一覧取得・ロール変更・有効化無効化は`GET/PUT /users`として実装済み（管理者向けフロントエンドブロック）

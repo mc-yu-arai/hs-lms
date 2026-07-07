@@ -260,3 +260,28 @@
 4. 管理画面から章・レッスン構成を編集すると受講者の`lesson_progress`が消える点に注意（上記参照）。将来的に個別更新APIへの改修を検討すること
 5. アバターアップロードの実ファイルでの動作確認はまだ。Google OAuthの完全なE2E確認もまだ
 6. 次のブロック（修了証発行、レポートAPI、グループ管理、通知、ユーザー新規作成/CSVインポート等）に進む方針をユーザーに確認してから開始すること
+
+## 2026-07-07（修了証発行ブロックの実装）
+### 実施内容
+- ユーザーから修了証発行機能の実装指示を受ける。確定パラメータ: 日本語のみ、掲載情報はコース名・受講者氏名・修了日・QRコード（シンプル構成）、表示方法はダウンロード（PDF保存）＋ブラウザ表示（プレビュー）
+- DBスキーマを設計し提示（`certificates`テーブル。内部主キー`id`とQRコード/公開検証URL専用の`verification_uuid`を分離、`UNIQUE(user_id, course_id)`で1ユーザー1コースにつき1枚のみとし発行APIの冪等性を担保）。ユーザー承認を得てから`supabase/migrations/20260706000001_create_certificates_table.sql`を作成、ユーザーがSupabase側で適用
+- PDF生成方式は`pdfkit`を採用（`puppeteer`はデプロイ先Render・Node標準buildpackにCJKフォントが入っておらず別途OSレベル対応が必要になるため、フォント同梱だけで完結する`pdfkit`を選択）。日本語表示のため、OFLライセンス（再配布可）のNoto Sans JP可変フォントをGoogle Fontsの公式リポジトリ(github.com/google/fonts)から`backend/assets/fonts/NotoSansJP-Variable.ttf`にダウンロードして同梱（約9.6MB）。実際にpdfkit経由でPDFを生成し、日本語がtofu化せず正しく表示されることを目視確認してから本実装に着手
+- バックエンド: `certificateRepository.ts`（`findCertificate`/`findOrCreateCertificate`/`findCertificateByVerificationUuid`。`verification_uuid`はDBのDEFAULT任せにせずアプリ側で`crypto.randomUUID()`により明示的に生成する設計に変更 — フェイクDB(テスト用)がPostgresのDEFAULT式を再現できないため、テストで発覚し修正）、`certificatePdfService.ts`（pdfkit+qrcodeでA4横向きのシンプルな証書レイアウトを生成）を新規作成
+- `courses.ts`に`POST /:id/certificate`（発行。未修了なら409、既存なら200・新規なら201）、`GET /:id/certificate/download`（PDFストリーミング返却）を追加。新規`routes/certificates.ts`に`GET /:uuid/verify`（認証不要、個人情報漏洩を避けるためメールアドレス等は含めない）を追加し`app.ts`に登録
+- `tests/certificate.test.ts`を新規作成（未修了時409・未認証401・発行の冪等性・PDFストリーミング(`%PDF`マジックバイト確認)・検証エンドポインの成功/404、計8件）。バックエンド合計78件全てパス、`tsc`もクリーン
+- フロントエンド: `frontend/src/lib/api.ts`に`apiFetchBlob`、`auth-context.tsx`に`authFetchBlob`を追加（PDFなどバイナリレスポンス専用。401時の自動リフレッシュ・再試行は既存の`authFetch`と同じロジックを踏襲）
+- 画面実装:
+  - `/courses/[id]/certificate`: マウント時に`POST .../certificate`（冪等）と`GET .../courses/:id`を並行呼び出しし、学習者氏名・コース名・発行日を証書風にレイアウト表示。QRコードは`qrcode`パッケージ(新規にfrontendへ追加)でクライアント側生成し、PDFに埋め込むものと同じ検証URLを指す。「PDFをダウンロード」ボタンは`authFetchBlob`でPDFを取得し`URL.createObjectURL`経由でブラウザのファイル保存をトリガー。「検証ページを見る」リンクで`/certificates/[uuid]`に遷移
+  - `/certificates/[uuid]`: 認証不要の公開ページ。`GET /v1/certificates/:uuid/verify`を呼び、有効なら受講者名・コース名・発行日を、無効なら「確認できませんでした」を表示
+  - コース完了画面（修了時のみ）とダッシュボードの受講中コース一覧（ステータスが`completed`のカードのみ）に「修了証を見る」リンクを追加。ダッシュボードのカードは元々カード全体が1つの`<a>`だったため、`<a>`のネストを避けるべく「カード全体を`position:relative`の`<div>`にし、中に`absolute inset-0`のリンク(コース詳細へ)と、その上に`relative z-10`の修了証リンクを重ねる」ストレッチリンクパターンに変更した
+- 実データでの動作確認: 既存の修了済みコース「テスト機能検証コース」（学習者test@example.com）で、ダッシュボードの「修了証を見る」→プレビュー画面で氏名・コース名・発行日・QRコードの表示を確認→「PDFをダウンロード」ボタンでバックエンドへのリクエストが200 OKで完了することを確認→「検証ページを見る」で`/certificates/[uuid]`に遷移し受講者名・コース名・発行日が正しく表示されることを確認→無効なUUID(`00000000-...`)では「確認できませんでした」の表示になることを確認→同じコースの修了証プレビューに再度アクセスすると`POST .../certificate`が200 OK（201ではない）で同一の`verificationUuid`を返すことを確認し、冪等性を実証
+- 動作確認中、PowerShellで`Get-Process node | Stop-Process`をバックエンド再起動のために複数回実行し、その都度Next.jsのフロントエンドdevサーバー(プレビュー)も巻き込んで停止してしまった（管理者UIブロックのセッションで得た教訓と同じ問題が再発）。ポート番号でプロセスを特定して個別に止める方法を試みたが、tsx watchの親子プロセス構成のためうまく特定できず、結局は`node`プロセス全停止→バックエンド起動→`preview_start`でフロントエンド再起動、という手順に落ち着いた
+
+### 次回セッションへの申し送り
+1. 修了証発行ブロックは実データでの動作確認まで完了し、機能的に完結した
+2. `backend/assets/fonts/NotoSansJP-Variable.ttf`（約9.6MB）はGitリポジトリに同梱済み。デプロイ時にこのファイルが確実に配置されることを確認すること（`.gitignore`で除外されていないか等）。リポジトリサイズが将来的に問題になる場合はサブセットフォント化を検討
+3. ユーザーの新規作成・削除・CSVインポート（7.2.2）は未実装
+4. カテゴリ管理UIが無い。管理画面から章・レッスン構成を編集すると受講者の`lesson_progress`が消える点にも注意（`docs/handoff/PROJECT_STATUS.md`参照）
+5. アバターアップロードの実ファイルでの動作確認、Google OAuthの完全なE2E確認はまだ
+6. 次のブロック（レポートAPI、グループ管理、通知、ユーザー新規作成/CSVインポート等）に進む方針をユーザーに確認してから開始すること
+7. **運用メモ**: バックエンド再起動時に`Get-Process node | Stop-Process`のような全nodeプロセス停止を行うと、フロントエンドのプレビューdevサーバーも巻き込まれて停止する。バックエンドだけを再起動したい場合はポート3001を掴んでいるPIDを`Get-NetTCPConnection -LocalPort 3001`等で特定してから個別に止めることが望ましい（tsx watchは親子プロセス構成のため取りこぼす場合があり、確実性より安全性を優先するなら全停止→両方再起動でも可）
