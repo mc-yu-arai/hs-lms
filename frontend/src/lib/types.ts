@@ -14,6 +14,13 @@ export interface AuthUser {
   avatarUrl?: string | null;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  createdAt: string;
+  courseCount?: number;
+}
+
 export interface Course {
   id: string;
   title: string;

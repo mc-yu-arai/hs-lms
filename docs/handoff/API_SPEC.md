@@ -28,6 +28,10 @@
 | POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
 | PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 | GET | /v1/courses | Bearer要 | コース一覧。learnerは`isPublished:true`のみ、admin/super_adminは全件。`keyword`/`categoryId`/`level`でフィルタ可 |
+| GET | /v1/categories | 不要 | カテゴリ一覧（紐付きコース数`courseCount`を含む）。コース作成フォーム等でも利用するため認証不要 |
+| POST | /v1/categories | 要・admin/super_admin限定 | カテゴリ新規作成。同名カテゴリが既に存在する場合は409 |
+| PUT | /v1/categories/:id | 要・admin/super_admin限定 | カテゴリ名編集。他カテゴリと同名になる場合は409 |
+| DELETE | /v1/categories/:id | 要・admin/super_admin限定 | カテゴリ削除。コースが1件でも紐付いていれば409で拒否 |
 | GET | /v1/courses/:id | Bearer要 | コース詳細＋章/レッスン構成。未受講者にはlessonの`contentUrl`/`contentBody`を隠す |
 | POST | /v1/courses | 要・admin/super_admin限定 | コース作成。`chapters`配列をネストで受け取り章・レッスンも同時作成 |
 | PUT | /v1/courses/:id | 要・admin/super_admin限定 | コース更新。`chapters`を指定すると章・レッスンを全置換 |
@@ -173,7 +177,7 @@
 ```json
 { "error": { "code": "invalid_credentials", "message": "..." } }
 ```
-主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `course_not_completed`(409) / `too_many_requests`(429) / `email_already_exists`(409) / `invalid_hire_date`(400) / `group_not_found`(400/404) / `file_required`(400) / `csv_validation_error`(400)
+主なエラーコード: `validation_error`(400) / `invalid_credentials`(401) / `account_disabled`(403) / `account_locked`(423) / `invalid_pending_token`(401) / `invalid_totp_code`(401) / `unauthorized`(401) / `forbidden`(403) / `invalid_file`/`invalid_file_type`(400/413) / `email_change_failed`(400) / `password_update_failed`(400) / `course_not_found`(404) / `course_has_enrollments`(409) / `not_enrolled`(404) / `prerequisite_not_completed`(409) / `quiz_not_found`(404) / `self_modification_forbidden`(400) / `user_not_found`(404) / `course_not_completed`(409) / `too_many_requests`(429) / `email_already_exists`(409) / `invalid_hire_date`(400) / `group_not_found`(400/404) / `file_required`(400) / `csv_validation_error`(400) / `category_not_found`(404) / `category_name_exists`(409) / `category_has_courses`(409)
 
 **GET /v1/courses/:id/quiz**
 ```json
@@ -353,6 +357,32 @@ file: (CSVファイル。ヘッダー行は 姓,名,メールアドレス,ロー
 // 存在しないID -> 404 { "error": { "code": "user_not_found", ... } }
 ```
 削除順序: `certificates`→`notification_logs`→`enrollments`→`public.users`→（アバター画像）→`auth.users`。`lesson_progress`/`quiz_attempts`/`quiz_answers`は`enrollments`へのON DELETE CASCADEで、`group_members`は`public.users`へのON DELETE CASCADEで自動的に連鎖削除される。
+
+**GET /v1/categories**（認証不要）
+```json
+{ "categories": [ { "id": "...", "name": "営業研修", "createdAt": "...", "courseCount": 3 } ] }
+```
+
+**POST /v1/categories**（admin/super_admin）
+```json
+// request
+{ "name": "営業研修" }
+// -> 201 { "category": { "id": "...", "name": "営業研修", "createdAt": "..." } }
+// 同名カテゴリが既存 -> 409 { "error": { "code": "category_name_exists", ... } }
+```
+
+**PUT /v1/categories/:id**（admin/super_admin）
+```json
+// request
+{ "name": "営業研修プログラム" }
+// -> 200 { "category": { "id": "...", "name": "営業研修プログラム", "createdAt": "..." } }
+```
+
+**DELETE /v1/categories/:id**（admin/super_admin）
+```json
+// -> 200 { "message": "カテゴリを削除しました" }
+// コースが紐付いている場合 -> 409 { "error": { "code": "category_has_courses", "message": "このカテゴリには3件のコースが紐付いているため削除できません" } }
+```
 
 ## 未実装（別ブロック扱い）
 - 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別・グループ別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み

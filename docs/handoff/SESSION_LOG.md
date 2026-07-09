@@ -384,3 +384,18 @@
 2. `enrollments`/`certificates`/`notification_logs`の`user_id`に`ON DELETE CASCADE`が無い前提はアプリ側の削除順序（`userDeletionService.ts`）に強く依存している。将来これらのテーブルに新しい関連テーブルを追加する場合、そのテーブルの`user_id`にも同様にCASCADEが無いなら、この削除関数に追記を忘れないよう注意すること
 3. カテゴリ（`categories`）管理UIが最後に残った未着手項目。次のブロックに進む方針をユーザーに確認してから開始すること
 4. **運用メモ（再掲・6回目）**: 今回はセッション冒頭でバックエンドが停止していたため`npm run dev`で再起動が必要だった（フロントエンドのプレビューは別プロセスのため影響なし）。バックエンドは`.claude/launch.json`に登録されていないため、`preview_start`では起動できず毎回手動でPowerShellから起動する必要がある点は今後も変わらない
+
+## 2026-07-09（カテゴリ管理ブロックの実装）
+### 実施内容
+- ユーザーからカテゴリ管理UIの実装指示を受ける。確定範囲: admin/super_admin限定の`GET/POST /v1/categories`・`PUT/DELETE /v1/categories/:id`（削除はコース紐付き時にエラー）、`/admin/categories`フロントエンド（一覧・作成・編集・削除、削除時は紐付きコース数を警告表示）、`AdminHeader`への「カテゴリ」リンク追加、コース作成・編集フォームのカテゴリ選択欄をAPI取得の動的な形に変更
+- `categories`テーブル自体はコース管理ブロック（2026-07-01）で既にマイグレーション適用済みのため、今回はDBマイグレーション不要（指示通り）。既存の`CourseForm.tsx`を確認したところ、`PROJECT_STATUS.md`の既知の問題に記載の通りカテゴリ選択欄は実際に一切存在せず常に`categoryId: null`でコースが作成される状態だったことを確認
+- バックエンド: `backend/src/services/categoryRepository.ts`（CRUD、`listCategories`は`groups`の`listGroups`と同じ「2クエリ+JS集計」パターンで紐付きコース数`courseCount`を付与、`countCoursesForCategory`は`courseRepository.ts`の`countEnrollments`と同じcountクエリパターン）を新規作成。`routes/categories.ts`に4エンドポイントを実装し`app.ts`に登録。`GET /`のみ`requireAuth()`を付けず認証不要にした（コース作成フォーム等でも使う想定のため、指示通り）
+- カテゴリ名の一意性はDB側に`UNIQUE(name)`制約が既に存在するため、作成・リネーム時に事前チェック（`findCategoryByName`）を入れて生のDB制約違反エラーが露出しないようにした（リネームでは自分自身への同名変更は許可するよう`id`を除外して重複判定）
+- `tests/categories.test.ts`を新規作成。一覧の認証不要確認とcourseCount集計、作成のアクセス制御・重複名エラー、リネームの404・重複名エラー・自分自身への同名リネーム許可、削除の成功・コース紐付き時の拒否・404、計12件。バックエンド合計143件全てパス、`tsc`もクリーン
+- フロントエンド: `frontend/src/lib/types.ts`に`Category`を追加。`/admin/categories`を新規実装（一覧テーブル、新規作成フォーム、行内インライン編集（編集/保存/キャンセル）、削除ボタン（紐付きコース数が0件でなければ`window.alert`で警告のみ表示し削除自体を実行しない、0件なら確認ダイアログの上で削除実行））。`AdminHeader`に「カテゴリ」リンクを追加。`CourseForm.tsx`に`categoryId`state・カテゴリ選択`<select>`・`CourseFormValues`への`categoryId`追加を行い、`otherCourses`と同じ`useEffect`パターンでカテゴリ一覧を取得するよう実装
+- 実データでの動作確認: 管理者アカウントで`/admin/categories`にアクセスしカテゴリ「営業研修」を作成→`/admin/courses/new`のカテゴリ選択欄に反映されていることを確認→インライン編集で「営業研修プログラム」にリネーム→API経由でこのカテゴリを指定したコースを作成し`courseCount`が1になることを確認→そのカテゴリの削除が`category_has_courses`(409)で拒否されることを確認→コースを削除後にカテゴリ削除が200で成功することを確認（動作確認用に作成したコース・カテゴリは確認後に削除済みでSupabase上に残っていない）
+
+### 次回セッションへの申し送り
+1. カテゴリ管理ブロックは実データでの動作確認まで完了し、機能的に完結した。これで`PROJECT_STATUS.md`の「未着手・進行中」に残っていた主要機能はCSRF対策とパスワードリカバリーリンク有効期限確認（いずれもインフラ/設定寄りの項目）のみとなった
+2. カテゴリ名の重複チェックはアプリ側の事前チェックであり、同時リクエストによる競合（TOCTOU）は防げない。実運用でカテゴリ作成の同時実行が起こりうる場合はDB制約違反時のエラーハンドリング強化を検討すること
+3. **運用メモ（再掲・7回目）**: 今回もセッション冒頭でバックエンドが停止していたため`npm run dev`で再起動が必要だった。引き続き根本対応（`.claude/launch.json`へのバックエンド登録、または専用の起動スクリプト整備）は未着手

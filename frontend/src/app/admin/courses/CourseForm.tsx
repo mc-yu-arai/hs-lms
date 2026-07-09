@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import type { Course, CourseDetail, LessonContentType } from "@/lib/types";
+import type { Category, Course, CourseDetail, LessonContentType } from "@/lib/types";
 
 const CONTENT_TYPE_OPTIONS: { value: LessonContentType; label: string }[] = [
   { value: "video", label: "動画" },
@@ -42,6 +42,7 @@ function newChapter(): ChapterDraft {
 export interface CourseFormValues {
   title: string;
   description: string | null;
+  categoryId: string | null;
   level: Course["level"];
   durationMinutes: number | null;
   passScore: number;
@@ -67,6 +68,7 @@ export function CourseForm({
 
   const [title, setTitle] = useState(initial?.course.title ?? "");
   const [description, setDescription] = useState(initial?.course.description ?? "");
+  const [categoryId, setCategoryId] = useState(initial?.course.categoryId ?? "");
   const [level, setLevel] = useState<Course["level"]>(initial?.course.level ?? "beginner");
   const [durationMinutes, setDurationMinutes] = useState(initial?.course.durationMinutes?.toString() ?? "");
   const [passScore, setPassScore] = useState(initial?.course.passScore?.toString() ?? "70");
@@ -95,12 +97,16 @@ export function CourseForm({
   );
 
   const [otherCourses, setOtherCourses] = useState<Course[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     authFetch<{ courses: Course[] }>("/v1/courses")
       .then((res) => setOtherCourses(res.courses.filter((c) => c.id !== excludeCourseId)))
+      .catch(() => undefined);
+    authFetch<{ categories: Category[] }>("/v1/categories")
+      .then((res) => setCategories(res.categories))
       .catch(() => undefined);
   }, [authFetch, excludeCourseId]);
 
@@ -141,6 +147,7 @@ export function CourseForm({
     const values: CourseFormValues = {
       title,
       description: description || null,
+      categoryId: categoryId || null,
       level,
       durationMinutes: durationMinutes ? Number(durationMinutes) : null,
       passScore: passScore ? Number(passScore) : 70,
@@ -194,6 +201,21 @@ export function CourseForm({
               <option value="beginner">初級</option>
               <option value="intermediate">中級</option>
               <option value="advanced">上級</option>
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-700">カテゴリ</span>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">未分類</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
           </label>
           <label className="block text-sm sm:col-span-2">

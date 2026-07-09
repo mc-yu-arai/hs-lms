@@ -12,6 +12,9 @@ export function AdminHeader() {
             <a href="/admin/courses" className="text-gray-600 transition-colors hover:text-gray-900">
               コース管理
             </a>
+            <a href="/admin/categories" className="text-gray-600 transition-colors hover:text-gray-900">
+              カテゴリ
+            </a>
             <a href="/admin/users" className="text-gray-600 transition-colors hover:text-gray-900">
               ユーザー管理
             </a>
