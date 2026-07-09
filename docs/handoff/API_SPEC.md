@@ -24,6 +24,7 @@
 | POST | /v1/users | 要・admin/super_admin限定 | ユーザー手動新規作成。Supabase Authにアカウント作成＋`public.users`へ登録。初期パスワードはランダム生成しResendでメール送信。`groupIds`指定時はその場でグループメンバーとしても登録（割当済みコースへの受講登録自動作成も発火） |
 | POST | /v1/users/import | 要・admin/super_admin限定 | CSV一括インポート（`multipart/form-data`、フィールド名`file`）。1件でもバリデーションエラーがあれば何も作成しない。全行成功後にグループ割り当てを実行 |
 | GET | /v1/users/import/template | 要・admin/super_admin限定 | CSVインポート用テンプレートのダウンロード（ヘッダー行＋サンプル行、BOM付きUTF-8） |
+| DELETE | /v1/users/:id | 要・admin/super_admin限定 | ユーザー完全削除。Supabase Auth＋`public.users`の両方から削除し、受講登録・修了証・通知履歴も連鎖削除する。**自分自身は削除不可**。無効化（ログイン不可のまま履歴は保全）は既存の`PUT /v1/users/:id`の`isActive:false`で対応 |
 | POST | /v1/auth/password/reset | 不要 | パスワードリセットメール送信（Resend経由）。メール存在有無を漏らさず常に同一レスポンス |
 | PUT | /v1/auth/password/update | リセットトークン(`token`)要 | リセットメール内リンクのアクセストークンでパスワード更新。ポリシー（8文字以上・英数字記号混在）を検証 |
 | GET | /v1/courses | Bearer要 | コース一覧。learnerは`isPublished:true`のみ、admin/super_adminは全件。`keyword`/`categoryId`/`level`でフィルタ可 |
@@ -345,6 +346,13 @@ file: (CSVファイル。ヘッダー行は 姓,名,メールアドレス,ロー
 **GET /v1/users/import/template**（admin/super_admin）
 `Content-Type: text/csv; charset=utf-8`（BOM付き）。ヘッダー行とサンプル行を1件含む。
 
+**DELETE /v1/users/:id**（admin/super_admin）
+```json
+// -> 200 { "message": "ユーザーを完全に削除しました" }
+// 自分自身を指定した場合 -> 400 { "error": { "code": "self_modification_forbidden", ... } }
+// 存在しないID -> 404 { "error": { "code": "user_not_found", ... } }
+```
+削除順序: `certificates`→`notification_logs`→`enrollments`→`public.users`→（アバター画像）→`auth.users`。`lesson_progress`/`quiz_attempts`/`quiz_answers`は`enrollments`へのON DELETE CASCADEで、`group_members`は`public.users`へのON DELETE CASCADEで自動的に連鎖削除される。
+
 ## 未実装（別ブロック扱い）
 - 7.2.4のレポート系の一部（`/reports/mandatory`の必須研修進捗、`/reports/dashboard`のダッシュボード専用集計、`/reports/export`のExcel等CSV以外の出力）。受講者別・コース別・グループ別の基本集計とCSV出力は`GET/POST /reports/*`として実装済み
-- ユーザーの削除（7.2.2）。新規作成（手動・CSV一括）、一覧取得、ロール変更、有効化無効化は実装済み

@@ -17,6 +17,7 @@ import { uploadAvatar, findAvatarUrl, mimeToExtension } from "../services/avatar
 import { listEnrollmentsForUser } from "../services/courseRepository";
 import { getGroupById } from "../services/groupRepository";
 import { createUserManually, importUsersFromCsv, buildCsvTemplate, CsvValidationError } from "../services/userImportService";
+import { deleteUserCompletely } from "../services/userDeletionService";
 
 export const usersRouter = Router();
 
@@ -155,6 +156,23 @@ usersRouter.put(
     const patch = adminUpdateUserSchema.parse(req.body);
     const updated = await updateUserAsAdmin(req.params.id, patch);
     return res.status(200).json({ user: toPublicProfile(updated ?? existing) });
+  }),
+);
+
+usersRouter.delete(
+  "/:id",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    if (req.params.id === req.appUser!.id) {
+      throw new HttpError(400, "self_modification_forbidden", "自分自身を削除することはできません");
+    }
+
+    const existing = await findUserById(req.params.id);
+    if (!existing) throw new HttpError(404, "user_not_found", "ユーザーが見つかりません");
+
+    await deleteUserCompletely(req.params.id);
+    return res.status(200).json({ message: "ユーザーを完全に削除しました" });
   }),
 );
 

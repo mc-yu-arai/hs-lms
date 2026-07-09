@@ -367,3 +367,20 @@
 4. CSVアップロードは既存の画像アップロード用`multer`インスタンス（2MB上限）を流用しているため、ファイルサイズ超過時のエラーメッセージが画像用の文言のまま表示される軽微な表示上の問題がある
 5. ユーザーの削除（7.2.2）、カテゴリ管理UIは未実装。次のブロックに進む方針をユーザーに確認してから開始すること
 6. **運用メモ（再掲・5回目）**: バックエンド再起動で`Get-Process node | Stop-Process`を使うとフロントエンドのプレビューも巻き込まれる問題は今回のセッションでは発生せず（バックエンドを再起動せずtsx watchの自動リロードのみで完結したため）。今回のように既存プロセスを再利用できる場合は再起動を避けるとこの問題を回避できる
+
+## 2026-07-07（ユーザー削除ブロックの実装）
+### 実施内容
+- ユーザーからユーザー削除機能の実装指示を受ける。確定パラメータ: 無効化は既存の`isActive=false`で対応済み、完全削除はSupabase Authと`public.users`の両方から削除し受講履歴・進捗・修了証も連鎖削除する
+- DBスキーマ（`DB_SCHEMA.md`）を確認したところ、`enrollments`/`certificates`/`notification_logs`の`user_id`にはいずれも`ON DELETE CASCADE`が設定されておらず（`group_members`のみグループ管理ブロックで`ON DELETE CASCADE`済み）、そのまま`public.users`を削除するとFK違反になることが判明。DBマイグレーションでFK制約を変更する案とアプリ側で明示的に削除してから`public.users`を消す案を検討し、既存のマイグレーション済みスキーマへの変更は影響範囲が読みにくいため、アプリ側での明示的削除（`courseRepository.createCourse`の疑似ロールバックと同様の考え方）を採用（マイグレーション不要のためユーザーへの提示は省略し実装に着手）
+- `backend/src/services/avatarStorage.ts`に`deleteAvatar`を追加（Storageから両拡張子のファイルを削除）
+- `backend/src/services/userDeletionService.ts`を新規作成。`deleteUserCompletely(userId)`が`certificates`→`notification_logs`→`enrollments`→`public.users`の順で明示的に削除し（この順序を守らないとFK違反になる）、アバター画像削除（失敗しても継続）を挟んでから最後に`auth.admin.deleteUser`でAuthアカウントを削除する。`lesson_progress`/`quiz_attempts`/`quiz_answers`は`enrollments`への、`group_members`は`public.users`へのON DELETE CASCADEに委ねてアプリ側では触れていない
+- `routes/users.ts`に`DELETE /:id`を追加（自分自身を指定した場合は`self_modification_forbidden`で400、既存の`PUT /:id`と同じガードパターン）
+- `tests/userDeletion.test.ts`を新規作成。Supabase Authのモックに`auth.admin.deleteUser`とStorageの`remove`を追加。アクセス制御・自己削除禁止・404・削除対象ユーザーの`enrollments`/`certificates`/`notification_logs`が全て削除されること・削除対象と無関係な他ユーザーのデータが影響を受けないことを検証（`group_members`のカスケードはテスト用フェイクDBがFK制約を再現しないため検証対象外とし、実データでの動作確認で代わりに確認する方針に）。計5件、バックエンド合計131件全てパス、`tsc`もクリーン
+- フロントエンド: `/admin/users`のテーブルに「操作」列を追加し、確認ダイアログ（完全削除であり無効化とは異なる旨を明示）付きの「削除」ボタンを実装。自分自身の行は無効化ボタンと同様に削除ボタンも無効化
+- 実データでの動作確認: バックエンドが未起動だったため`npm run dev`で起動し直してから確認を実施。管理者アカウントで、CSVインポートブロックの検証時に作成した「伊藤健太」（グループ「CSVインポート検証グループ」のメンバー）を一覧から削除→一覧から消えることを確認→削除前後でそのグループのメンバー数を比較し1→0になっていることを確認（実際のPostgresの`ON DELETE CASCADE`が`group_members`に対して正しく働いていることの確認）→削除済みメールアドレスでのログインが401になることを確認→さらに手動作成→即削除の一連の流れと、自分自身の行では削除ボタンがdisabledになっていることをブラウザで確認
+
+### 次回セッションへの申し送り
+1. ユーザー削除ブロックは実データでの動作確認まで完了し、機能的に完結した。これでユーザー管理関連の主要機能（一覧・ロール変更・有効化無効化・新規作成・CSVインポート・完全削除）が出揃った
+2. `enrollments`/`certificates`/`notification_logs`の`user_id`に`ON DELETE CASCADE`が無い前提はアプリ側の削除順序（`userDeletionService.ts`）に強く依存している。将来これらのテーブルに新しい関連テーブルを追加する場合、そのテーブルの`user_id`にも同様にCASCADEが無いなら、この削除関数に追記を忘れないよう注意すること
+3. カテゴリ（`categories`）管理UIが最後に残った未着手項目。次のブロックに進む方針をユーザーに確認してから開始すること
+4. **運用メモ（再掲・6回目）**: 今回はセッション冒頭でバックエンドが停止していたため`npm run dev`で再起動が必要だった（フロントエンドのプレビューは別プロセスのため影響なし）。バックエンドは`.claude/launch.json`に登録されていないため、`preview_start`では起動できず毎回手動でPowerShellから起動する必要がある点は今後も変わらない

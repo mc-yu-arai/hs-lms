@@ -56,6 +56,27 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleDelete(target: AuthUser) {
+    const confirmed = window.confirm(
+      `「${target.lastName} ${target.firstName}」を完全に削除しますか？\n\n` +
+        "この操作は取り消せません。アカウントに加えて、受講履歴・進捗・修了証もすべて削除されます。\n" +
+        "アカウントを残したまま利用できなくしたいだけの場合は、代わりに「無効」に切り替えてください。",
+    );
+    if (!confirmed) return;
+
+    setBusyId(target.id);
+    setRowErrors((prev) => ({ ...prev, [target.id]: "" }));
+    try {
+      await authFetch(`/v1/users/${target.id}`, { method: "DELETE" });
+      load();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "削除に失敗しました";
+      setRowErrors((prev) => ({ ...prev, [target.id]: message }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (isLoading || !user || !isAuthorized) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -104,6 +125,7 @@ export default function AdminUsersPage() {
                   <th className="px-4 py-3 font-medium">部署</th>
                   <th className="px-4 py-3 font-medium">ロール</th>
                   <th className="px-4 py-3 font-medium">状態</th>
+                  <th className="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +162,15 @@ export default function AdminUsersPage() {
                           }`}
                         >
                           {u.isActive ? "有効" : "無効"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleDelete(u)}
+                          disabled={isSelf || busyId === u.id}
+                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        >
+                          削除
                         </button>
                         {rowErrors[u.id] && <p className="mt-1 text-xs text-red-600">{rowErrors[u.id]}</p>}
                       </td>

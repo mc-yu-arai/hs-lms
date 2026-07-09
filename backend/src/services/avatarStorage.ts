@@ -27,6 +27,11 @@ export async function uploadAvatar(userId: string, buffer: Buffer, mimetype: str
   return supabaseAdmin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+export async function deleteAvatar(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin.storage.from(BUCKET).remove(EXTENSIONS.map((ext) => `${userId}/avatar.${ext}`));
+  if (error) throw error;
+}
+
 export async function findAvatarUrl(userId: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin.storage.from(BUCKET).list(userId);
   if (error || !data) return null;
