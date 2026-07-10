@@ -399,3 +399,19 @@
 1. カテゴリ管理ブロックは実データでの動作確認まで完了し、機能的に完結した。これで`PROJECT_STATUS.md`の「未着手・進行中」に残っていた主要機能はCSRF対策とパスワードリカバリーリンク有効期限確認（いずれもインフラ/設定寄りの項目）のみとなった
 2. カテゴリ名の重複チェックはアプリ側の事前チェックであり、同時リクエストによる競合（TOCTOU）は防げない。実運用でカテゴリ作成の同時実行が起こりうる場合はDB制約違反時のエラーハンドリング強化を検討すること
 3. **運用メモ（再掲・7回目）**: 今回もセッション冒頭でバックエンドが停止していたため`npm run dev`で再起動が必要だった。引き続き根本対応（`.claude/launch.json`へのバックエンド登録、または専用の起動スクリプト整備）は未着手
+
+## 2026-07-09〜10（Renderデプロイのビルド失敗トラブルシューティング）
+### 実施内容
+- 全19コミットをGitHub（`mc-tanaka/hs-lms`）に初push。続けてVercel（フロントエンド）/Render（バックエンド）へのデプロイ手順と環境変数一覧をまとめたガイドをArtifactとして作成（`docs/handoff/*`には保存していない一過性の成果物）
+- Renderの初回デプロイで`tsconfig.json(5,25): error TS5107: Option 'moduleResolution=node10' is deprecated`が発生。`ignoreDeprecations: "6.0"`を追加する案が提示されたが、ローカルで検証したところ本リポジトリにコミット済みの`backend/package-lock.json`が固定するTypeScript `5.9.3`では`"6.0"`は`TS5103: Invalid value`になり、`"5.0"`が正しい値であることを確認して`ignoreDeprecations: "5.0"`で対応（コミット`cf82e1d`）
+- 同じエラーが再発したため`moduleResolution`を非推奨の`Node`から`Node16`に変更する案を試行。ローカルの`build`/`lint`/`test`全て、および`node dist/index.js`の実起動まで確認できたため一旦採用（コミット`81f055b`）したが、ユーザー側で別のエラーが発生したためすぐに`ignoreDeprecations: "5.0"`方式へ差し戻し（コミット`2a4b1e2`）
+- それでも同じ`TS5107`エラーが解消しないとの報告を受け、Renderのビルドログを確認してもらったところ重要な手がかりが判明: ①`NODE_VERSION=18`（EOL済み）が設定されていた、②Build Commandが`npm install && npm run build`で`npm ci`ではない、③`npm install`のログが「added 152 packages」と、ローカルの通常インストール（458パッケージ）より大幅に少ない
+- 「152パッケージ」という数字を手がかりに、ローカルで`NODE_ENV=production`を設定して`npm install`を再現したところ「added 153 packages, and audited 154 packages」とほぼ一致。**Renderのビルド環境は`NODE_ENV=production`により`devDependencies`を丸ごとスキップしており、`devDependencies`に置いていた`typescript`自体がインストールされていなかった**ことが根本原因と判明（`tsc`が存在しないことも`Test-Path`で確認）。当初は`typescript`を`dependencies`へ移動する対応を実施（コミット`7e76d57`。あわせてTypeScriptのバージョンをキャレット無し`5.9.3`で厳密固定し、`npm install`のsemverレンジによる別バージョン解決の可能性も排除）
+- ユーザーからより望ましい代替案（`package.json`の構成を変えず、`scripts.build`を`"npm install --include=dev && tsc -p tsconfig.json"`に変更する方式）の提示を受け、そちらに切り替え。`typescript`は`devDependencies`に戻す（バージョン固定`5.9.3`は維持）。この対応が実際にRenderのビルドフローで機能することを、`NODE_ENV=production`での`npm install`（→152パッケージ、`tsc`無し）に続けて`npm run build`（→内部で`npm install --include=dev`が残り305パッケージを追加インストール→`tsc`が実行され`dist/index.js`生成）という一連の流れをローカルで完全に再現して確認（コミット`c613c5d`）
+
+### 次回セッションへの申し送り
+1. **Renderの本番ビルド環境は`NODE_ENV=production`で`npm install`を実行し、`devDependencies`を全てスキップする。** ビルド時にのみ必要なツール（TypeScriptコンパイラ等）を追加する場合は、`dependencies`に置くのではなく`scripts.build`側で`npm install --include=dev`を明示的に呼ぶ方式を踏襲すること（`backend/package.json`の`build`スクリプト参照）
+2. `backend/tsconfig.json`は最終的に`module: "CommonJS"` / `moduleResolution: "Node"` / `ignoreDeprecations: "5.0"`に落ち着いている。TypeScriptのバージョンを更新する際はこの値が引き続き正しいか確認すること（バージョンによって有効な値が変わる）
+3. `typescript`のバージョンは`backend/package.json`でキャレット無しの完全固定（`5.9.3`）にしてある。`npm install`はロックファイルがあっても状況次第でsemverレンジ内の別バージョンを再解決しうるため、ビルド結果を安定させたい主要ツールは固定を検討する価値がある
+4. RenderのNode.jsバージョンが`NODE_VERSION=18`（EOL済み）に設定されている。今回の問題の直接原因ではなかったが、いずれ新しいLTS（20系/22系）への更新を推奨
+5. 今回のトラブルシューティングはコード変更を伴わない`docs/handoff`更新は都度行わず、最終的に機能した状態のみをこのログにまとめて記録した
