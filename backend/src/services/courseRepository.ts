@@ -1,7 +1,8 @@
 import { supabaseAdmin } from "../lib/supabase";
 
 export type CourseLevel = "beginner" | "intermediate" | "advanced";
-export type ContentType = "video" | "pdf" | "text" | "scorm";
+export type ContentType = "video" | "pdf" | "text" | "scorm" | "learnwiz";
+export type ScormVersion = "1.2" | "2004";
 export type EnrollmentStatus = "enrolled" | "in_progress" | "completed" | "expired";
 
 export interface Course {
@@ -29,6 +30,7 @@ export interface Lesson {
   content_body: string | null;
   duration_seconds: number | null;
   display_order: number;
+  scorm_version: ScormVersion | null;
 }
 
 export interface Chapter {
@@ -128,6 +130,7 @@ export interface LessonInput {
   contentUrl?: string | null;
   contentBody?: string | null;
   durationSeconds?: number | null;
+  scormVersion?: ScormVersion | null;
 }
 
 export interface ChapterInput {
@@ -189,6 +192,7 @@ async function replaceCurriculum(courseId: string, chapters: ChapterInput[]) {
         content_body: lesson.contentBody ?? null,
         duration_seconds: lesson.durationSeconds ?? null,
         display_order: j,
+        scorm_version: lesson.scormVersion ?? null,
       }));
       const { error: lessonError } = await supabaseAdmin.from("lessons").insert(lessonRows);
       if (lessonError) throw lessonError;

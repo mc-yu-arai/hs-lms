@@ -55,7 +55,8 @@ export interface EnrollmentSummary {
   };
 }
 
-export type LessonContentType = "video" | "pdf" | "text" | "scorm";
+export type LessonContentType = "video" | "pdf" | "text" | "scorm" | "learnwiz";
+export type ScormVersion = "1.2" | "2004";
 
 export interface LessonSummary {
   id: string;
@@ -65,6 +66,13 @@ export interface LessonSummary {
   displayOrder: number;
   contentUrl: string | null;
   contentBody: string | null;
+  scormVersion: ScormVersion | null;
+}
+
+export interface LessonContentUploadResult {
+  contentUrl: string;
+  contentType: "scorm" | "learnwiz";
+  scormVersion: ScormVersion | null;
 }
 
 export interface ChapterSummary {

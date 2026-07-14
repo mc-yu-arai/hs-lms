@@ -20,7 +20,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
 
   if (err instanceof MulterError) {
     const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
-    return res.status(status).json({ error: { code: "invalid_file", message: "画像ファイルが不正です（JPEG/PNG、最大2MB）" } });
+    const message = err.code === "LIMIT_FILE_SIZE" ? "ファイルサイズが上限を超えています" : "アップロードされたファイルが不正です";
+    return res.status(status).json({ error: { code: "invalid_file", message } });
   }
 
   if (err instanceof ZodError) {

@@ -69,16 +69,18 @@ CREATE TABLE public.chapters (
   updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- レッスン（仕様書にDDLなし。content_typeはvideo/pdf/text/scormのみ対応。SCORM実行エンジン・インタラクティブスライドはスコープ外）
+-- レッスン（仕様書にDDLなし。content_typeはvideo/pdf/text/scorm/learnwizに対応）
+-- scorm_versionはコンテンツアップロードブロック(2026-07-14)で追加。SCORM 1.2/2004の判定結果を保持する
 CREATE TABLE public.lessons (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chapter_id UUID NOT NULL REFERENCES public.chapters(id) ON DELETE CASCADE,
   title VARCHAR(200) NOT NULL,
-  content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('video', 'pdf', 'text', 'scorm')),
+  content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('video', 'pdf', 'text', 'scorm', 'learnwiz')),
   content_url VARCHAR(500),
   content_body TEXT,
   duration_seconds INTEGER,
   display_order INTEGER NOT NULL DEFAULT 0,
+  scorm_version VARCHAR(10) CHECK (scorm_version IS NULL OR scorm_version IN ('1.2', '2004')),
   created_at TIMESTAMP NOT NULL DEFAULT now(),
   updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
@@ -245,6 +247,16 @@ CREATE TABLE public.group_courses (
 - どちらも`findEnrollment`で既存有無を確認してから作成する冪等設計（既存の`POST /courses/:id/enroll`と同じ判断基準）。作成時は`notifyEnrollmentCompleted`も呼び出し、通知ブロックの`enrollment_completed`ログに記録される。
 - メンバー削除・コース割り当て解除・グループ削除のいずれも、既に作成された`enrollments`（進捗含む）はそのまま残す。グループはあくまで「受講登録を一括で作る/管理する」ための入り口であり、受講履歴の所有権はグループに紐付けない設計とした。
 
+## コンテンツアップロード・再生ブロック（SCORM/LearnWiz）
+
+zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase Storageの公開バケット`lesson-content`に展開して保存する。DBスキーマの変更は`lessons.content_type`への`'learnwiz'`追加と`scorm_version`カラム追加のみ（新規テーブルは無し）。
+
+- **アップロード**: `POST /v1/uploads/lesson-content`（admin/super_admin限定、multipart、300MB上限）が`backend/src/services/lessonContentStorage.ts`でzipを展開し、`imsmanifest.xml`の有無でSCORM、`lwConfig.xml`の有無でLearnWizと判定（`adm-zip`使用、ネイティブ依存を避ける既存方針を踏襲）。SCORMの場合`imsmanifest.xml`の`<schemaversion>`から`1.2`/`2004`を簡易判定する。zip内の`index.html`（トップレベル優先）をエントリポイントとし、全ファイルを`lesson-content/{アップロードごとのUUID}/...`へアップロードする。複数SCO構成のマニフェスト解析はスコープ外（単純に`index.html`を探すのみ）。
+- **レッスンとの結びつけ**: `POST/PUT /courses`のchapters配列は保存の度に全置換されレッスンIDが再生成される既存の設計上の制約があるため、アップロードはレッスンのライフサイクルと切り離した独立エンドポイントにした。返却された`contentUrl`（Storage相対パス、例: `lesson-content/{uuid}/index.html`）を既存の「手入力URL欄」と同じ要領でレッスンの`content_url`にそのまま保存する。
+- **同一オリジン配信プロキシ**: Supabase Storageの無料/標準プランは、アップロード時に`contentType: text/html`を指定しても**HTMLファイルをXSS対策として強制的にtext/plainで配信する**という既知の仕様上の制約がある（`.js`/`.css`等の他アセットは概ね指定通り配信される）。またSCORMランタイム(scorm-again)はiframe内から`window.parent.API`を辿るため、Supabase Storageの公開URL（別オリジン）を直接iframeに読み込むと同一オリジンポリシーで失敗する。この2つを同時に解決するため、`frontend/src/app/api/lesson-content/[...path]/route.ts`が同一オリジンの配信プロキシとして、Supabase Storageから取得した内容を拡張子ベースで正しいContent-Type（`text/html`等、`EXTENSION_MIME_TYPES`マップ参照）に付け替えて返す。フロントエンドは`content_url`を直接使わず、常にこのプロキシ経由（`/api/lesson-content/{content_url}`）でiframeのsrcを組み立てる。Rangeヘッダーも転送するため動画等の同梱アセットにも対応。
+- **SCORM再生**: `scorm-again`パッケージを`import("scorm-again")`で動的import（named export `Scorm12API`/`Scorm2004API`。**サブパスimport（`scorm-again/scorm12`等）は型定義とビルド出力の食い違いで実行時に壊れるため使用しないこと** — ルートパッケージからのnamed importのみ使う）。`lessons.scorm_version`に応じて`Scorm12API`/`Scorm2004API`を`window.API`/`window.API_1484_11`にアタッチしてからiframeを描画する。完了検知は`api.on(...)`イベントリスナーで行うが、**SCORM 1.2は`LMSSetValue.cmi.core.lesson_status`、2004は`SetValue.cmi.completion_status`/`SetValue.cmi.success_status`と、バージョンによってイベント名接頭辞が異なる**（1.2は`LMSSetValue`/`LMSCommit`、2004は`SetValue`/`Commit`という別々の内部関数名を使うため）。値が`completed`/`passed`になった時点で1回だけ既存の`PUT /courses/:id/lessons/:lessonId/progress`（`completed:true`）を呼ぶ。`suspend_data`によるレジュームはスコープ外。
+- **LearnWiz再生**: 上記プロキシ経由のiframe表示＋既存のPDF/テキストと同じ手動完了ボタンのみ（ランタイムAPI連携なし）。
+
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
 |---|---|---|
@@ -254,6 +266,7 @@ CREATE TABLE public.group_courses (
 | `supabase/migrations/20260706000001_create_certificates_table.sql` | `certificates` 作成 | 適用済み（2026-07-07ユーザー確認） |
 | `supabase/migrations/20260707000001_create_notification_tables.sql` | `notification_settings`/`notification_logs` 作成 | 適用済み（2026-07-07ユーザー確認） |
 | `supabase/migrations/20260707000002_create_group_tables.sql` | `groups`/`group_members`/`group_courses` 作成 | 適用済み（2026-07-07ユーザー確認） |
+| `supabase/migrations/20260710000001_add_lesson_content_upload.sql` | `lessons.content_type`に`'learnwiz'`追加、`scorm_version`カラム追加 | 適用済み（2026-07-14ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

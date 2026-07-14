@@ -9,7 +9,7 @@
 - データベース: PostgreSQL（Supabase）
 - 認証基盤: Supabase Auth（`auth.users`）＋ アプリ用 `public.users`。ロール等のカスタムクレームはSupabase Auth Hookではなく、バックエンド側で `public.users.role` を都度参照する方式（Supabase固有機能への依存を避けるため）
 - メール送信: Resend（実キー設定済み。パスワードリセットメールで利用中）
-- ストレージ: Supabase Storage（アイコン画像、未実装）
+- ストレージ: Supabase Storage（`avatars`＝アイコン画像、`lesson-content`＝SCORM/LearnWizのzip展開先。いずれも公開バケット）
 
 ## セッション／トークン管理方針（重要な設計判断）
 仕様書はRedisでのセッション管理を想定していたが、現構成にRedisはない。ユーザーの意向により：
@@ -108,6 +108,14 @@
 - [x] カテゴリ管理ブロック フロントエンド: `/admin/categories`（一覧・新規作成・インライン編集・削除（紐付きコース数を警告表示））を実装し`AdminHeader`に「カテゴリ」リンクを追加。`CourseForm.tsx`（コース新規作成・編集フォーム共通コンポーネント）に、これまで存在しなかったカテゴリ選択欄（APIから取得した一覧をセレクトボックスで表示）を追加
 - [x] カテゴリ管理ブロック: 実データで動作確認済み（カテゴリ作成→コース作成フォームの選択肢に反映されることを確認→リネーム→コースへの紐付け→紐付きカテゴリの削除が409で拒否されることを確認→コース削除後にカテゴリ削除が成功することを確認）
 - [x] 本番デプロイ: GitHub（`mc-tanaka/hs-lms`）へ全コミットをpush、フロントエンドをVercel、バックエンドをRenderへデプロイ。Renderの`NODE_ENV=production`による`devDependencies`スキップが原因のビルド失敗（詳細は`SESSION_LOG.md`の2026-07-09〜10参照）、およびVercel側の環境変数名の設定ミス（後述）を解消し、基本動作確認まで完了
+- [x] コンテンツアップロード・再生ブロック: `lessons.content_type`に`'learnwiz'`追加・`scorm_version`カラム追加のマイグレーション作成・適用済み。Supabase Storageに新規公開バケット`lesson-content`を作成済み
+- [x] コンテンツアップロード・再生ブロック: `POST /v1/uploads/lesson-content`（admin/super_admin限定、multipart、300MB上限）を実装。`backend/src/services/lessonContentStorage.ts`が`adm-zip`でzipを展開し、`imsmanifest.xml`/`lwConfig.xml`の有無でSCORM/LearnWizを自動判定、SCORMは`<schemaversion>`からバージョン(1.2/2004)も判定し、`index.html`をエントリポイントとして全ファイルを`lesson-content`バケットへアップロードする
+- [x] コンテンツアップロード・再生ブロック: アップロードをレッスンのライフサイクルから独立させ（`POST/PUT /courses`のchapters全置換でレッスンIDが再生成される既存制約への対応）、返却された`contentUrl`を既存の「手入力URL欄」と同じ経路でレッスンに保存する設計を採用。`courses.ts`の`lessonSchema`に`contentType: 'learnwiz'`と`scormVersion`を追加、`contentUrl`のZod検証を`.url()`から非空文字列に緩和（Storage相対パスを許容するため）
+- [x] コンテンツアップロード・再生ブロック: Jestテスト8件追加（アクセス制御・非zip拒否・SCORM1.2/2004判定・LearnWiz判定・manifest/index.html欠如時のエラー、合計151件全てパス）
+- [x] コンテンツアップロード・再生ブロック: `frontend/src/app/api/lesson-content/[...path]/route.ts`に同一オリジン配信プロキシを実装。SCORMランタイムのクロスオリジンAPI探索問題と、Supabase Storageの無料/標準プランがHTMLファイルを`text/plain`で強制配信する既知の仕様上の制約を、拡張子ベースのContent-Type付け替えで同時に解決（詳細は`DB_SCHEMA.md`のコンテンツアップロード・再生ブロックの節を参照）
+- [x] コンテンツアップロード・再生ブロック: `CourseForm.tsx`にSCORM/LearnWiz選択時のzipアップロードUI（ファイル選択・アップロード中表示・エラー表示・SCORMバージョン手動上書きセレクト）を追加
+- [x] コンテンツアップロード・再生ブロック: レッスン視聴画面に`LearnWizLesson`（プロキシ経由iframe＋既存の手動完了ボタン）と`ScormLesson`（`scorm-again`を動的import、SCORMバージョンに応じ`Scorm12API`/`Scorm2004API`を`window.API`/`window.API_1484_11`にアタッチしてからiframe描画、完了イベントで`PUT .../progress`を自動呼び出し）を実装
+- [x] コンテンツアップロード・再生ブロック: 実データで動作確認済み（SCORM 1.2・SCORM 2004・LearnWizそれぞれの自作テストパッケージをアップロード→コース作成→受講登録→レッスン視聴でSCORM側から`window.parent.API`が同一オリジン経由で発見できること→完了操作で進捗APIが自動更新されること→全レッスン完了でコース修了画面へ遷移することまで一通りブラウザで確認）
 
 ## 未着手・進行中
 - [ ] CSRF対策（現状JWT Bearerのみでcookieを使っていないため優先度は下げているが、フロント実装時にcookie方式を採る場合は要対応）
@@ -118,6 +126,8 @@
 - [ ] Supabaseダッシュボード → Authentication → Providers でGoogle Providerを有効化し、Client ID/Secretを登録
 - [ ] Supabaseダッシュボード → Authentication → URL Configuration の Redirect URLs に `http://localhost:3001/v1/auth/oauth/google/callback`（本番URLも later）を追加
 - [ ] Supabase Storageに `avatars` という名前の公開バケットを作成（`POST /users/me/avatar` が書き込み先として使用）
+- [x] Supabase Storageに `lesson-content` という名前の公開バケットを作成済み（SCORM/LearnWizのzip展開先。2026-07-14ユーザー確認）
+- [ ] **Vercelの環境変数に `NEXT_PUBLIC_SUPABASE_URL`（backend/.envの`SUPABASE_URL`と同じ値）を追加し、Redeployすること**。コンテンツ配信プロキシ`app/api/lesson-content/[...path]`が未設定のまま本番デプロイすると500を返しSCORM/LearnWizが再生できない（ローカル開発環境の`frontend/.env.local`には追加済みで動作確認済みだが、本番Vercel環境への追加はまだ）
 
 ## 既知の問題・保留中の判断事項
 - 2FA仮トークンは暗号化されたオペーク文字列としてサーバー内で完結させており、DBには保存していない（5分で失効）。ユーザーが2FA未完了のまま放置した場合、内部で保持していたSupabaseセッション自体は生成済みのまま残る（誰にも渡らないため実害は低いが、本番移行時に要再検討）
@@ -162,6 +172,12 @@
 - ユーザー削除: 完全削除は取り消せない破壊的操作のため、フロントエンドの確認ダイアログで「無効化との違い」を明示している。誤操作防止のための二段階確認や削除理由の入力などは今回のスコープには含めていない
 - 本番デプロイ: フロントエンドのAPIベースURLは`frontend/src/lib/api.ts`が読む環境変数名`NEXT_PUBLIC_API_BASE_URL`が正。Vercel側で`NEXT_PUBLIC_API_URL`のように**名前を間違えて設定すると、コードは黙って開発用フォールバック（`http://localhost:3001`）にフォールバックし本番で通信できなくなる**（実際にこの設定ミスで発生し、変数名の修正＋再デプロイで解消した）。`NEXT_PUBLIC_*`はビルド時に埋め込まれるため、Vercel側で変数を追加・変更した場合は再起動ではなく**Redeploy**が必要
 - 本番デプロイ: Renderのビルド環境は`NODE_ENV=production`で`npm install`を実行し`devDependencies`を全てスキップする。ビルド時にのみ必要なツール（TypeScriptコンパイラ等）は`dependencies`に置くのではなく、`backend/package.json`の`scripts.build`側で`npm install --include=dev`を明示的に呼ぶ方式にしてある（詳細な調査過程は`SESSION_LOG.md`の2026-07-09〜10参照）
+- コンテンツアップロード: Supabase Storageの無料/標準プランは、アップロード時に`contentType`を明示指定してもHTMLファイルを常に`text/plain`として配信する既知の仕様がある（XSS対策と思われる。Pro+カスタムドメインなら回避可能との情報あり）。素朴に公開URLをiframeに読み込むと`<pre>`タグでソースコードがそのまま表示されてしまい何も動かない。`frontend/src/app/api/lesson-content/[...path]/route.ts`で拡張子ベースにContent-Typeを付け替えて配信することで回避している。**新しい拡張子のアセットを追加する場合は、このルートの`EXTENSION_MIME_TYPES`マップに追記を忘れないこと**（無いとフォールバックでSupabaseの返すContent-Typeがそのまま使われる）
+- コンテンツアップロード: `scorm-again`パッケージ（v3.1.0時点）は型定義（`.d.ts`、サブパスの`scorm-again/scorm12`・`scorm-again/scorm2004`はdefault exportと宣言）と実際のESMビルド出力（named exportのみ）が食い違っている既知の不整合がある。サブパスimportすると型チェックは通るが実行時に`Scorm12API is not a constructor`で落ちる。回避策としてルートパッケージ`scorm-again`からのnamed importを使うこと（`frontend/src/app/courses/[id]/lessons/[lessonId]/page.tsx`の`ScormLesson`参照）。将来パッケージを更新する際はこの挙動が直っていないか確認すること
+- コンテンツアップロード: SCORM 1.2と2004でscorm-againの完了イベント名の接頭辞が異なる（1.2は内部関数名が`LMSSetValue`/`LMSCommit`のため`on("LMSSetValue.cmi.core.lesson_status", ...)`、2004は`SetValue`/`Commit`のため`on("SetValue.cmi.completion_status", ...)`）。実装時にこれを取り違えて完了イベントが全く発火しない不具合を作り込みかけたため、両バージョンで実際にアップロード→再生→完了操作→進捗API呼び出しまでブラウザで確認済み
+- コンテンツアップロード: 動作確認のため作成した検証用コース「コンテンツアップロード検証コース」「SCORM2004検証コース」とその受講登録・アップロード済みzipコンテンツ（`lesson-content`バケット内）はSupabase上にそのまま残っている（削除するには受講登録を先に消す必要があり、既存のコース削除API・UIでは受講済みコースを削除できない既存の制約に阻まれるため、他のブロックの検証用コースと同様に残置する運用とした）
+- コンテンツアップロード: 複数SCO構成のSCORMマニフェスト（`imsmanifest.xml`内に複数`<resource>`）には対応していない。zip内の`index.html`（トップレベル優先、無ければ最初に見つかったもの）を単純にエントリポイントとする設計のため、マルチSCOパッケージをアップロードすると意図しないSCOが再生される可能性がある
+- コンテンツアップロード: `suspend_data`によるSCORMのレジューム（前回の続きから再開）は実装していない（「進捗・完了のみでスコア不要」という指示に合わせて完了判定のみを連携する設計にしたため）
 
 ## 直近の作業内容
 - 2026-07-01: `docs/prompts/`の指示書を読み込み、`public.users`マイグレーションを提示。リフレッシュ/リセットトークンの保存方式についてユーザーに確認し、「開発環境はSupabase、本番はPostgres移行予定」の方針を確定。バックエンド雛形とログイン〜リフレッシュ〜ログアウトの一連のセッションAPIを実装し、テストも整備。
@@ -180,3 +196,4 @@
 - 2026-07-07: 通知・リマインダーブロックを実装。確定パラメータ（通知種類は受講登録完了・コース修了・受講期限切れリマインダーの3種、実行方式は手動＋自動の両方、リマインダー送信タイミングは管理者が設定変更可能・デフォルト7日前）を確認。DBスキーマ（`notification_settings`シングルトン、`notification_logs`）を提示し4つの設計判断点（シングルトン運用／重複送信防止の考え方／`GET .../logs`エンドポイントの追加／node-cronの水平スケール時の注意）を含めて承認を得てからマイグレーションを作成、ユーザーがSupabase側で適用。バックエンドに`notificationRepository.ts`（設定の自動作成・更新、ログ記録・重複チェック）、`notificationService.ts`（3種の通知送信ロジック、Resend連携）、`routes/notifications.ts`（設定API・手動送信API・履歴API）を新規作成し、`node-cron`で毎分チェック方式の自動実行を`index.ts`に追加。既存の受講登録API・レッスン進捗更新API・テスト回答送信APIに通知フックを追加（コース完了は「未完了→完了」への遷移時のみ発火するよう、更新前ステータスを事前キャプチャする実装に修正——テスト用フェイクDBのオブジェクト共有により当初のバグをテストで発見）。Jestテスト13件追加（合計98件全てパス）。フロントエンドに`/admin/notifications`（設定フォーム・手動送信ボタン・送信履歴テーブル）を実装し`AdminHeader`に「通知」リンクを追加。実データで、設定変更の保存確認、手動送信（対象なしで0件応答）、新規コースへの受講登録による`enrollment_completed`ログ記録、レッスン完了によるコース修了と`course_completed`ログ記録までブラウザで確認（実際にResend APIを呼び出しており、送信失敗はサンドボックス制限の既知エラーとして正しく記録されることも確認）。
 - 2026-07-07: グループ管理ブロックを実装。確定範囲（`groups`/`group_members`/`group_courses`のマイグレーション、admin/super_admin限定のCRUD・メンバー管理・コース一括割り当て/解除API、グループ別進捗レポート、`/admin/groups`フロントエンド）を確認。DBスキーマ（独自`id`＋`UNIQUE`制約で冪等性を担保する設計）と4つの設計判断点（コース割り当て時の現メンバー全員への受講登録自動作成／後からのメンバー追加時も割当済み全コースへ自動登録／メンバー削除・コース解除時に既存の受講登録は削除しない／グループ削除も同様に受講登録には影響しない）を提示し承認を得てからマイグレーションを作成、ユーザーがSupabase側で適用。バックエンドに`groupRepository.ts`（CRUD・メンバー/コースの純粋なデータアクセス）、`groupService.ts`（受講登録自動作成のみを担当する薄い層として分離）、`routes/groups.ts`（全8エンドポイント）を新規作成し、既存の`reportRepository.ts`/`routes/reports.ts`に`GET /reports/groups/:id`・`/csv`を追加。Jestテスト14件追加（合計112件全てパス）。フロントエンドに`/admin/groups`（一覧・作成・削除）、`/admin/groups/[id]`（編集・メンバー管理・コース割り当て・レポート表示/CSV）を実装し`AdminHeader`に「グループ」リンクを追加。実データで、コース→メンバーの順・メンバー→コースの順のどちらでも受講登録が正しく自動作成されること（`courseCount`の増分で確認）、メンバー削除・コース割り当て解除・グループ削除のいずれでも既存の受講登録件数が変化しないこと、グループ別レポートの集計値とCSVダウンロードが正しいことをAPI経由およびブラウザUI操作の両方で確認。なお本セッションではNext.jsのフォーム`<button type="submit">`に対する`preview_click`が実際のsubmitイベントを発火しない事象が複数箇所（ログイン画面・グループ作成フォーム）で再現し、`form.requestSubmit()`や`button.click()`をブラウザコンソール経由で直接呼び出すことで回避した（原因未特定、次セッション以降も同様の事象が出た場合はこの回避策を使うこと）。
 - 2026-07-09〜10: 全コミットをGitHubへpush後、Vercel/Renderへの本番デプロイに着手。Renderのビルド失敗（`NODE_ENV=production`による`devDependencies`スキップが根本原因）を`backend/package.json`の`scripts.build`修正（`npm install --include=dev && tsc`）で解消し、Vercel側の環境変数名の誤り（`NEXT_PUBLIC_API_URL`ではなく正しくは`NEXT_PUBLIC_API_BASE_URL`）も特定・修正。**本番環境（Vercel＋Render）へのデプロイが完了し、基本動作確認済み。**詳細な調査過程は`SESSION_LOG.md`の該当日付エントリ参照。
+- 2026-07-14: コンテンツアップロード・再生（SCORM/LearnWiz）機能に着手。実装前に設計上の懸念点を提示し、①同一オリジン配信プロキシ方式の採用、②アップロードをレッスンのライフサイクルから独立させる方針、③アップロードサイズ上限300MB、を含む全提案の承認を得た。`lessons.content_type`に`'learnwiz'`追加・`scorm_version`カラム追加のマイグレーションを提示・適用、Supabase Storageに`lesson-content`公開バケットを作成。バックエンドに`POST /v1/uploads/lesson-content`（`adm-zip`でzip展開、imsmanifest.xml/lwConfig.xmlでSCORM/LearnWiz判定、schemaversionでSCORMバージョン判定）を実装しJestテスト8件追加（合計151件全てパス）。フロントエンドに同一オリジン配信プロキシ`app/api/lesson-content/[...path]`、CourseFormのzipアップロードUI、レッスン視聴画面のLearnWiz/SCORM再生コンポーネント（`scorm-again`統合）を実装。実装中に3つの想定外の問題に遭遇し解決: (1) Supabase Storage無料/標準プランがHTMLを`text/plain`で強制配信する既知の仕様→プロキシ側で拡張子ベースにContent-Type付け替えで解決、(2) `scorm-again`のサブパスimportが型定義と実行時ビルドで食い違い`is not a constructor`エラー→ルートパッケージからのnamed importに変更、(3) SCORM 1.2/2004でイベントリスナー名の接頭辞が異なる（`LMSSetValue`系/`SetValue`系）ことに気づかず完了イベントが発火しない不具合→ライブラリのビルド済みソースを直接確認して正しいイベント名に修正。SCORM 1.2・SCORM 2004・LearnWizそれぞれ自作のテストパッケージをアップロードし、受講登録→再生→完了操作→進捗API自動更新→コース修了画面遷移までブラウザで一通り確認。**Vercel本番環境には`NEXT_PUBLIC_SUPABASE_URL`環境変数の追加がまだ必要**（次回セッション最優先で案内すること）。

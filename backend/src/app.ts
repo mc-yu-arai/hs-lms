@@ -14,6 +14,7 @@ import { reportsRouter } from "./routes/reports";
 import { notificationsRouter } from "./routes/notifications";
 import { groupsRouter } from "./routes/groups";
 import { categoriesRouter } from "./routes/categories";
+import { uploadsRouter } from "./routes/uploads";
 import { apiRateLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
@@ -44,6 +45,7 @@ export function createApp() {
   app.use("/v1/admin", notificationsRouter);
   app.use("/v1/groups", groupsRouter);
   app.use("/v1/categories", categoriesRouter);
+  app.use("/v1/uploads", uploadsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import type { Category, Course, CourseDetail, LessonContentType } from "@/lib/types";
+import type { Category, Course, CourseDetail, LessonContentType, LessonContentUploadResult, ScormVersion } from "@/lib/types";
 
 const CONTENT_TYPE_OPTIONS: { value: LessonContentType; label: string }[] = [
   { value: "video", label: "動画" },
   { value: "pdf", label: "PDF" },
   { value: "text", label: "テキスト" },
   { value: "scorm", label: "SCORM" },
+  { value: "learnwiz", label: "LearnWiz" },
 ];
+
+const ZIP_CONTENT_TYPES: LessonContentType[] = ["scorm", "learnwiz"];
 
 interface LessonDraft {
   key: string;
@@ -19,6 +22,7 @@ interface LessonDraft {
   contentUrl: string;
   contentBody: string;
   durationSeconds: string;
+  scormVersion: ScormVersion | null;
 }
 
 interface ChapterDraft {
@@ -32,7 +36,7 @@ function newKey() {
 }
 
 function newLesson(): LessonDraft {
-  return { key: newKey(), title: "", contentType: "text", contentUrl: "", contentBody: "", durationSeconds: "" };
+  return { key: newKey(), title: "", contentType: "text", contentUrl: "", contentBody: "", durationSeconds: "", scormVersion: null };
 }
 
 function newChapter(): ChapterDraft {
@@ -50,7 +54,17 @@ export interface CourseFormValues {
   isMandatory: boolean;
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
-  chapters: { title: string; lessons: { title: string; contentType: LessonContentType; contentUrl: string | null; contentBody: string | null; durationSeconds: number | null }[] }[];
+  chapters: {
+    title: string;
+    lessons: {
+      title: string;
+      contentType: LessonContentType;
+      contentUrl: string | null;
+      contentBody: string | null;
+      durationSeconds: number | null;
+      scormVersion: ScormVersion | null;
+    }[];
+  }[];
 }
 
 export function CourseForm({
@@ -90,6 +104,7 @@ export function CourseForm({
                   contentUrl: l.contentUrl ?? "",
                   contentBody: l.contentBody ?? "",
                   durationSeconds: l.durationSeconds?.toString() ?? "",
+                  scormVersion: l.scormVersion ?? null,
                 }))
               : [newLesson()],
         }))
@@ -100,6 +115,7 @@ export function CourseForm({
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadState, setUploadState] = useState<Record<string, { status: "uploading" | "error"; message?: string }>>({});
 
   useEffect(() => {
     authFetch<{ courses: Course[] }>("/v1/courses")
@@ -140,6 +156,33 @@ export function CourseForm({
     );
   }
 
+  async function handleZipSelected(chapterKey: string, lessonKey: string, file: File) {
+    setUploadState((prev) => ({ ...prev, [lessonKey]: { status: "uploading" } }));
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const result = await authFetch<LessonContentUploadResult>("/v1/uploads/lesson-content", {
+        method: "POST",
+        body: formData,
+      });
+      updateLesson(chapterKey, lessonKey, {
+        contentType: result.contentType,
+        contentUrl: result.contentUrl,
+        scormVersion: result.scormVersion,
+      });
+      setUploadState((prev) => {
+        const next = { ...prev };
+        delete next[lessonKey];
+        return next;
+      });
+    } catch (err) {
+      setUploadState((prev) => ({
+        ...prev,
+        [lessonKey]: { status: "error", message: err instanceof ApiError ? err.message : "アップロードに失敗しました" },
+      }));
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -163,6 +206,7 @@ export function CourseForm({
           contentUrl: l.contentType === "text" ? null : l.contentUrl || null,
           contentBody: l.contentType === "text" ? l.contentBody || null : null,
           durationSeconds: l.durationSeconds ? Number(l.durationSeconds) : null,
+          scormVersion: l.contentType === "scorm" ? l.scormVersion : null,
         })),
       })),
     };
@@ -367,6 +411,46 @@ export function CourseForm({
                           rows={2}
                           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm sm:col-span-2"
                         />
+                      ) : ZIP_CONTENT_TYPES.includes(lesson.contentType) ? (
+                        <div className="sm:col-span-2 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept=".zip"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleZipSelected(chapter.key, lesson.key, file);
+                                e.target.value = "";
+                              }}
+                              className="text-sm"
+                            />
+                            {uploadState[lesson.key]?.status === "uploading" && (
+                              <span className="text-xs text-gray-500">アップロード中...</span>
+                            )}
+                            {lesson.contentType === "scorm" && (
+                              <label className="flex items-center gap-1 text-xs text-gray-600">
+                                SCORMバージョン:
+                                <select
+                                  value={lesson.scormVersion ?? ""}
+                                  onChange={(e) =>
+                                    updateLesson(chapter.key, lesson.key, { scormVersion: (e.target.value || null) as ScormVersion | null })
+                                  }
+                                  className="rounded-md border border-gray-300 px-1.5 py-1 text-xs"
+                                >
+                                  <option value="">未判定</option>
+                                  <option value="1.2">1.2</option>
+                                  <option value="2004">2004</option>
+                                </select>
+                              </label>
+                            )}
+                          </div>
+                          {uploadState[lesson.key]?.status === "error" && (
+                            <p role="alert" className="text-xs text-red-600">
+                              {uploadState[lesson.key]?.message}
+                            </p>
+                          )}
+                          {lesson.contentUrl && <p className="truncate text-xs text-gray-500">格納先: {lesson.contentUrl}</p>}
+                        </div>
                       ) : (
                         <input
                           placeholder="コンテンツURL"

@@ -429,3 +429,28 @@
 3. RenderのNode.jsバージョンが`NODE_VERSION=18`（EOL済み）のまま。いずれ新しいLTSへの更新を推奨（前回セッションからの申し送り事項）
 4. CSRF対策、パスワードリカバリーリンク有効期限のSupabase側確認は引き続き未着手（`PROJECT_STATUS.md`「未着手・進行中」参照）
 5. 次に本番運用を見据えて対応すべき項目（Resendの独自ドメイン検証、初回ログイン時の強制パスワード変更、CSVアップロードのエラーメッセージ出し分け等）の優先順位をユーザーに確認してから次の作業を開始すること
+
+## 2026-07-14（コンテンツアップロード・再生ブロックの実装）
+### 実施内容
+- ユーザーからコンテンツアップロード・再生機能（SCORM/LearnWiz zipアップロード、再生、進捗連携）の実装指示を受ける。実装前に設計上の懸念点を提示: ①SCORMランタイムのクロスオリジンAPI探索問題（同一オリジン配信プロキシで解決する方針を提案）、②アップロードとレッスンのライフサイクルの不整合（`POST/PUT /courses`のchapters全置換でレッスンIDが再生成される既存制約への対応として、アップロードを独立エンドポイントにする方針）、③その他のDBスキーマ変更・自動判定方式・アップロードサイズ上限・Storageバケット新設等。ユーザーから全提案の承認（プロキシ方式採用、独立アップロードAPI、サイズ上限300MB）を得た
+- DBマイグレーション（`lessons.content_type`に`'learnwiz'`追加、`scorm_version`カラム追加）を提示し、ユーザーがSupabase側で適用。`lesson-content`公開Storageバケットも作成
+- バックエンド: `backend/src/services/lessonContentStorage.ts`を新規作成。`adm-zip`（ネイティブ依存を避ける既存方針を踏襲）でzipを展開し、`imsmanifest.xml`/`lwConfig.xml`の有無でSCORM/LearnWizを判定、SCORMは`<schemaversion>`の値から`1.2`/`2004`を簡易判定、zip内の`index.html`（トップレベル優先）をエントリポイントとして全ファイルを`lesson-content/{アップロードごとのUUID}/...`へアップロード。`routes/uploads.ts`に`POST /v1/uploads/lesson-content`（admin/super_admin限定、multer専用インスタンス300MB上限、zip以外のfileFilterで拒否）を実装し`app.ts`に登録
+- `courses.ts`の`lessonSchema`に`contentType: 'learnwiz'`と`scormVersion`を追加。`contentUrl`のZod検証を`.url()`から`.min(1)`（非空文字列）に緩和（scorm/learnwizはStorage相対パスを格納するため完全なURLではなくなるため）。`courseRepository.ts`の`ContentType`/`Lesson`/`LessonInput`にも同様の型拡張
+- `tests/lessonContent.test.ts`を新規作成（アクセス制御・非zip拒否・SCORM1.2/2004の判定・LearnWiz判定・manifest欠如時のエラー・index.html欠如時のエラー、計8件）。バックエンド合計151件全てパス
+- フロントエンド: `frontend/src/app/api/lesson-content/[...path]/route.ts`に同一オリジン配信プロキシを新規実装。当初はSupabase Storageから取得したレスポンスのContent-Typeをそのまま転送する設計にしていたが、**実機動作確認でSCORMコンテンツのiframeがソースコードをそのままテキスト表示（`<pre>`タグ）してしまう不具合を発見**。調査の結果、Supabase Storageの無料/標準プランは`contentType: text/html`を明示指定してアップロードしても配信時に強制的に`text/plain`へ差し替える既知の仕様（XSS対策と思われる）であることが判明（`supabase-js`のバグではなく、SDKを経由しない生のREST APIコールでも同じ挙動を再現して切り分けた）。対応として、プロキシ側で拡張子ベースの`EXTENSION_MIME_TYPES`マップからContent-Typeを付け直す方式に変更し解決
+- `CourseForm.tsx`にSCORM/LearnWiz選択時のzipアップロードUI（ファイル選択・アップロード中/エラー表示・SCORMバージョン手動上書きセレクト）を追加。`frontend/src/lib/types.ts`に`learnwiz`・`scormVersion`・`LessonContentUploadResult`を追加
+- `scorm-again`パッケージ（`^3.1.0`）をfrontendに追加。レッスン視聴画面に`LearnWizLesson`（プロキシ経由iframe＋既存の手動完了ボタン）と`ScormLesson`（動的importで`Scorm12API`/`Scorm2004API`を`window.API`/`window.API_1484_11`にアタッチしてからiframe描画、完了イベントで`PUT .../progress`を自動呼び出し）を実装
+  - **実装中に発見した問題1**: `scorm-again/scorm12`・`scorm-again/scorm2004`というサブパスからdefault importする実装（型定義`.d.ts`が`export default`と宣言している通り）を書いたところ、型チェックは通るが実行時に`Scorm12API is not a constructor`で落ちた。パッケージの実際のESMビルド出力(`dist/esm/scorm12.js`等)を直接確認したところnamed export(`export { Scorm12API }`)になっており、型定義とビルド出力が食い違っていることが判明。ルートパッケージ`scorm-again`からのnamed importに変更して解決（ルートの型定義・ビルド出力は一致していた）
+  - **実装中に発見した問題2**: SCORM 1.2コンテンツで完了ボタンを押しても`window.API.cmi.core.lesson_status`は正しく`"completed"`になるのに、進捗更新APIが呼ばれない不具合が発生。scorm-againのビルド済みソースを直接確認したところ、SCORM 1.2の内部実装は`LMSSetValue`/`LMSCommit`という関数名を使っており、イベントリスナー名も`SetValue.*`ではなく`LMSSetValue.*`という接頭辞になることが判明（2004は`SetValue`/`Commit`で合っていた）。`on("LMSSetValue.cmi.core.lesson_status", ...)`に修正して解決
+  - zip展開中の破損エントリ（zlibの`Z_DATA_ERROR`）が素通しで500エラーになっていた点も、`safeGetData`ヘルパーで捕捉し`LessonContentError`（400）に変換するよう修正
+- 既存の`errorHandler.ts`の`MulterError`分岐が「画像ファイルが不正です（JPEG/PNG、最大2MB）」という画像専用の文言を全アップロードエンドポイント共通で返していた（CSVインポートブロックで発生していた既知の表示上の問題と同根）。zipアップロードという3つ目の消費者が増えたタイミングで、ファイルサイズ超過/形式不正それぞれに応じた汎用的な文言に修正（アバター・CSV・zipの全アップロードに影響するが、いずれもより正確な文言になる方向の変更）
+- 実データでの動作確認: SCORM 1.2・SCORM 2004・LearnWizそれぞれ自作のテストパッケージ（`imsmanifest.xml`+`index.html`、`lwConfig.xml`+`index.html`）をzip化し、管理者トークンで直接`POST /v1/uploads/lesson-content`を呼んでアップロード→返却された`contentUrl`/`scormVersion`でコースを作成→学習者として受講登録→レッスン視聴画面でiframe内から`window.parent.API`が同一オリジン経由で発見できること（`"API found"`）を確認→完了操作（SCORM側のJSでLMSSetValue/SetValueを呼ぶ）→`PUT .../progress`が自動発火し進捗が更新されること→全レッスン完了でコース修了画面へ自動遷移することまで、3パターンとも一通りブラウザで確認
+- 動作確認用に作成した検証用コース「コンテンツアップロード検証コース」（SCORM1.2+LearnWiz）「SCORM2004検証コース」と、それぞれの受講登録・アップロード済みzipコンテンツはSupabase上にそのまま残っている（他ブロックの検証用コースと同様、受講登録があるコースは既存の削除APIでは削除できないため残置）
+
+### 次回セッションへの申し送り
+1. **Vercel本番環境に`NEXT_PUBLIC_SUPABASE_URL`環境変数（`backend/.env`の`SUPABASE_URL`と同じ値）の追加がまだ**。追加してRedeployしないと、本番でSCORM/LearnWizコンテンツの配信プロキシが500を返し再生できない。ローカルの`frontend/.env.local`には追加済みで動作確認済み
+2. Supabase Storageの無料/標準プランはHTMLファイルを`text/plain`で強制配信する仕様がある。新しい拡張子のアセットタイプを扱う場合は`frontend/src/app/api/lesson-content/[...path]/route.ts`の`EXTENSION_MIME_TYPES`マップへの追記を忘れないこと
+3. `scorm-again`のサブパスimport（`scorm-again/scorm12`等）は型定義と実行時ビルドが食い違うバグがある（v3.1.0時点）。将来パッケージを更新する際はルートパッケージからのnamed importのままで良いか確認すること
+4. 複数SCO構成のSCORMマニフェストは非対応（zip内の`index.html`を単純に探すのみ）。`suspend_data`によるレジュームも未実装（指示のスコープ外）
+5. 動画・PDFのアップロードUIは今回のスコープに含まれず、既存の手入力URL欄のまま
+6. 次に進める作業の方針をユーザーに確認してから開始すること

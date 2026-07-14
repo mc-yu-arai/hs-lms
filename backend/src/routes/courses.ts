@@ -74,6 +74,7 @@ function serializeChapters(chapters: ChapterWithLessons[], includeContent: boole
       displayOrder: lesson.display_order,
       contentUrl: includeContent ? lesson.content_url : null,
       contentBody: includeContent ? lesson.content_body : null,
+      scormVersion: lesson.scorm_version,
     })),
   }));
 }
@@ -124,10 +125,13 @@ coursesRouter.get(
 
 const lessonSchema = z.object({
   title: z.string().min(1).max(200),
-  contentType: z.enum(["video", "pdf", "text", "scorm"]),
-  contentUrl: z.string().url().nullable().optional(),
+  contentType: z.enum(["video", "pdf", "text", "scorm", "learnwiz"]),
+  // scorm/learnwizはStorage相対パス(例: lesson-content/{uuid}/index.html)を格納するため、
+  // 完全なURLに限定せず空文字でない文字列を許容する
+  contentUrl: z.string().min(1).nullable().optional(),
   contentBody: z.string().nullable().optional(),
   durationSeconds: z.number().int().nonnegative().nullable().optional(),
+  scormVersion: z.enum(["1.2", "2004"]).nullable().optional(),
 });
 
 const chapterSchema = z.object({

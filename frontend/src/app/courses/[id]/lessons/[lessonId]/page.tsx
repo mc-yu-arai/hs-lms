@@ -9,6 +9,13 @@ import type { CourseDetail, CourseProgress, LessonSummary } from "@/lib/types";
 const VIDEO_SAVE_INTERVAL_MS = 5000;
 const SCROLL_COMPLETE_THRESHOLD_PX = 24;
 
+// SCORM/LearnWizのzip展開済みコンテンツは同一オリジン配信プロキシ(app/api/lesson-content)経由で読み込む。
+// SupabaseStorageの公開URLを直接iframeに読み込むと、SCORMランタイムのwindow.parent.API探索が
+// クロスオリジンで失敗するため。
+function lessonContentProxyUrl(contentUrl: string): string {
+  return `/api/lesson-content/${contentUrl}`;
+}
+
 interface ProgressUpdateResult {
   enrollment: { status: string };
 }
@@ -167,11 +174,12 @@ export default function LessonViewerPage() {
           )}
           {lesson.contentType === "pdf" && <PdfLesson lesson={lesson} />}
           {lesson.contentType === "text" && <TextLesson lesson={lesson} onReachBottom={handleMarkComplete} alreadyCompleted={lessonProgress?.isCompleted ?? false} />}
+          {lesson.contentType === "learnwiz" && <LearnWizLesson lesson={lesson} />}
           {lesson.contentType === "scorm" && (
-            <p className="text-sm text-gray-500">このコンテンツ形式（SCORM）は現在サポートされていません。</p>
+            <ScormLesson lesson={lesson} alreadyCompleted={lessonProgress?.isCompleted ?? false} onComplete={handleVideoEnded} />
           )}
 
-          {(lesson.contentType === "pdf" || lesson.contentType === "text") && (
+          {(lesson.contentType === "pdf" || lesson.contentType === "text" || lesson.contentType === "learnwiz") && (
             <div className="mt-4">
               {actionError && (
                 <p role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -302,5 +310,104 @@ function TextLesson({
     >
       {lesson.contentBody || "本文が設定されていません。"}
     </div>
+  );
+}
+
+function LearnWizLesson({ lesson }: { lesson: LessonSummary }) {
+  if (!lesson.contentUrl) {
+    return <p className="text-sm text-gray-500">コンテンツが設定されていません。</p>;
+  }
+  return (
+    <iframe
+      src={lessonContentProxyUrl(lesson.contentUrl)}
+      title={lesson.title}
+      className="h-[70vh] w-full rounded-lg border border-gray-200"
+    />
+  );
+}
+
+function ScormLesson({
+  lesson,
+  alreadyCompleted,
+  onComplete,
+}: {
+  lesson: LessonSummary;
+  alreadyCompleted: boolean;
+  onComplete: () => void | Promise<void>;
+}) {
+  const [isApiReady, setIsApiReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const hasFiredRef = useRef(alreadyCompleted);
+
+  useEffect(() => {
+    hasFiredRef.current = alreadyCompleted;
+  }, [alreadyCompleted]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    function fireCompleteOnce() {
+      if (hasFiredRef.current) return;
+      hasFiredRef.current = true;
+      void onComplete();
+    }
+
+    async function setupApi() {
+      try {
+        if (lesson.scormVersion === "1.2") {
+          const { Scorm12API } = await import("scorm-again");
+          const api = new Scorm12API({ autocommit: true });
+          // SCORM 1.2のAPIは LMSSetValue/LMSCommit という関数名のため、イベント名も
+          // "SetValue"ではなく"LMSSetValue"接頭辞になる(2004の"SetValue"とは異なる)
+          api.on("LMSSetValue.cmi.core.lesson_status", (_element: string, value: string) => {
+            if (value === "completed" || value === "passed") fireCompleteOnce();
+          });
+          if (cancelled) return;
+          (window as unknown as Record<string, unknown>).API = api;
+        } else {
+          const { Scorm2004API } = await import("scorm-again");
+          const api = new Scorm2004API({ autocommit: true });
+          api.on("SetValue.cmi.completion_status", (_element: string, value: string) => {
+            if (value === "completed") fireCompleteOnce();
+          });
+          api.on("SetValue.cmi.success_status", (_element: string, value: string) => {
+            if (value === "passed") fireCompleteOnce();
+          });
+          if (cancelled) return;
+          (window as unknown as Record<string, unknown>).API_1484_11 = api;
+        }
+        if (!cancelled) setIsApiReady(true);
+      } catch (err) {
+        console.error("SCORM init error", err);
+        if (!cancelled) setLoadError("SCORMランタイムの初期化に失敗しました");
+      }
+    }
+
+    void setupApi();
+
+    return () => {
+      cancelled = true;
+      // レッスン切り替え時に前のSCORMパッケージ用APIインスタンスが残らないようにする
+      delete (window as unknown as Record<string, unknown>).API;
+      delete (window as unknown as Record<string, unknown>).API_1484_11;
+    };
+  }, [lesson.scormVersion, onComplete]);
+
+  if (!lesson.contentUrl) {
+    return <p className="text-sm text-gray-500">コンテンツが設定されていません。</p>;
+  }
+  if (loadError) {
+    return <p className="text-sm text-red-600">{loadError}</p>;
+  }
+  if (!isApiReady) {
+    return <p className="text-sm text-gray-500">読み込み中...</p>;
+  }
+
+  return (
+    <iframe
+      src={lessonContentProxyUrl(lesson.contentUrl)}
+      title={lesson.title}
+      className="h-[70vh] w-full rounded-lg border border-gray-200"
+    />
   );
 }
