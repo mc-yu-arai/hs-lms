@@ -4,7 +4,12 @@
 // このルートを経由させることでiframeのsrcを常に自オリジンにし、index.htmlが相対パスで参照する
 // アセット(js/css/画像等)もこの同じルート配下に自然に解決される。
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+// このルートはサーバー側でのみ実行される(ブラウザに公開する必要がない)ため、あえてNEXT_PUBLIC_接頭辞を
+// 使わない。NEXT_PUBLIC_接頭辞の環境変数はNext.jsがビルド時に値をJSバンドルへ直接埋め込むため、
+// Vercelダッシュボードで値を追加/変更した後に再デプロイを忘れると古い(未設定の)値のまま動き続けてしまう
+// 問題が過去に発生した(NEXT_PUBLIC_API_BASE_URLの件、SESSION_LOG.md参照)。接頭辞無しの通常のサーバー用
+// 環境変数はビルド時に埋め込まれず実行のたびにprocess.envから読まれるため、この種の取りこぼしを避けられる。
+const SUPABASE_URL = process.env.SUPABASE_URL;
 
 // SupabaseのStorageは無料/標準プランではHTMLファイルをtext/htmlとして配信せず、
 // XSS対策として強制的にtext/plainへ差し替えて返す(アップロード時にcontentType: text/htmlを
@@ -47,7 +52,8 @@ function resolveContentType(objectPath: string, upstreamContentType: string | nu
 
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   if (!SUPABASE_URL) {
-    return new Response("NEXT_PUBLIC_SUPABASE_URL is not configured", { status: 500 });
+    console.error("[lesson-content proxy] SUPABASE_URL is not configured");
+    return new Response("SUPABASE_URL is not configured", { status: 500 });
   }
 
   const { path } = await params;
@@ -58,9 +64,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const range = request.headers.get("range");
   if (range) headers.set("range", range);
 
-  const upstream = await fetch(targetUrl, { headers });
+  let upstream: Response;
+  try {
+    upstream = await fetch(targetUrl, { headers });
+  } catch (err) {
+    console.error("[lesson-content proxy] fetch to Supabase Storage failed", targetUrl, err);
+    return new Response("コンテンツの取得に失敗しました", { status: 502 });
+  }
 
   if (!upstream.ok && upstream.status !== 206) {
+    console.error("[lesson-content proxy] upstream returned", upstream.status, targetUrl);
     return new Response("コンテンツが見つかりません", { status: upstream.status === 404 ? 404 : upstream.status });
   }
 
