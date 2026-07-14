@@ -468,3 +468,15 @@
 1. **Vercel本番環境の環境変数名を`NEXT_PUBLIC_SUPABASE_URL`から`SUPABASE_URL`に変更（無ければ新規追加）してください**（`NEXT_PUBLIC_`接頭辞を外した名前が正）。値は`backend/.env`の`SUPABASE_URL`と同じ。念のため一度Redeployして最新のコードで確実に反映されていることを確認するとより安全
 2. ユーザーが実際に本番でLearnWiz/SCORM再生を再確認し、解消したかどうかまだ確認できていない。次回セッション冒頭で結果を確認すること
 3. `NEXT_PUBLIC_`接頭辞は「ブラウザに公開する必要があるか」だけを基準に付けること。サーバー専用コード（Route Handler、API Routes）で使う値には付けない、という判断基準をこの2回の教訓として明記しておく
+
+## 2026-07-14（続き・本番トラブル2件の調査と管理者マニュアル作成）
+### 実施内容
+- 本番でコース詳細画面に「コースが見つかりません」、`/quiz`・`/enroll`が404になるとの報告を受け調査。ユーザーから提示されたコースID(`f15e0d23-c92f-4bb0-a0ba-f469e04cd4be`)を、ローカルの`backend/.env`（本番と同一のSupabaseプロジェクトを指している）の認証情報でSupabase REST APIに直接問い合わせたところ、コースは実在するが`is_published: false`だった。`GET /courses/:id`は非publishedコースを非admin/super_adminに404で返し、`POST /courses/:id/enroll`は**adminであっても**`!course.is_published`のみでガードされ404になる、既存の意図した仕様通りの挙動と判断。コード修正はせず、コースを公開状態にするよう案内した
+- 本番でパスワードリセットメールのリンクを踏むとログイン画面に戻ってしまうとの報告を受け調査。ユーザーからは「Supabase Site URL」と「バックエンドがFRONTEND_URLを正しく使っているか」の確認を依頼された。後者を検証するため、実際にデータを変更しない安全な方法として、`GET /v1/auth/oauth/google/callback`にCookie無しでリクエストを送り、`env.FRONTEND_URL`を使ったエラーリダイレクト先（`Location`ヘッダー）を観測する手法を使用。まずフロントエンドの本番URL（`https://hs-lms.vercel.app/login`）を開き「Googleでログイン」リンクのhrefから本番バックエンドURL（`https://hs-lms-backend-521j.onrender.com`）を特定し、そこへ直接アクセスして`https://hs-lms.vercel.app/login?error=...`へ正しくリダイレクトされることを確認した。これによりRenderの`FRONTEND_URL`環境変数もバックエンドコードも問題ないと判定。原因はSupabaseダッシュボードのAuthentication → URL Configuration → Redirect URLsに本番の`/reset-password`が登録されておらず、Supabaseがリダイレクト先をSite URLへフォールバックしていることによるものと推定（フロントエンドのルート`/`が未ログイン時に`/login`へ即リダイレクトする実装のため、「Site URLへ飛ばされる」→「未ログイン状態でルートを開く」→「ログイン画面に着地する」という一連の流れが症状と正確に一致する）。Supabaseダッシュボードの設定はAPI経由で確認・変更する手段が無かったため、コード修正はせずユーザーに確認を依頼した
+- 上記2件はいずれもコードのバグではなく運用上の設定不備だったため、コミット・pushは行っていない
+- 続けて、`docs/handoff/PROJECT_STATUS.md`の完了済み機能一覧と、実際の管理画面のソースコード（`frontend/src/app/admin/`配下の全ページ・`NewUserModal.tsx`・`ImportUsersModal.tsx`等のモーダル、ログイン画面、プロフィール画面）を一通り確認した上で、`docs/manual/admin_manual.md`（管理者向け操作マニュアル）を新規作成。本番URL`https://hs-lms.vercel.app`を前提とし、依頼された9セクション（ログイン・初期設定/ユーザー管理/カテゴリ管理/コース管理/テスト管理/グループ管理/レポート/通知設定/よくあるトラブル）で構成。特に「よくあるトラブル」セクションには、今回調査した2件（非公開コースの404、パスワードリセットのSupabase設定）に加え、既存の既知の問題（CSV全件ロールバック、コース編集での進捗リセット、カテゴリ/コース/ユーザー削除の制約、Resendサンドボックス制限、SCORM/LearnWizのアップロード要件）を実装の裏付けを取った上で反映した。2FAについては自己設定用の管理画面が存在しないという制約も正直に記載した
+
+### 次回セッションへの申し送り
+1. `docs/manual/admin_manual.md`はドキュメントのみの追加で、コードの変更は無い。次回、管理画面に変更を加えた際はこのマニュアルの該当セクションも合わせて更新すること
+2. パスワードリセットのSupabase Redirect URLs設定がユーザー側で修正されたかどうか、次回セッション冒頭で確認すること
+3. 非公開コースに関する仕様（admin含め全員が`enroll`できない、非admin/super_adminには404で存在自体が見えない）は意図した設計だが、管理者が公開設定を見落としやすいという運用上の課題がある。要望が出た場合は、コース一覧の「非公開」バッジをより目立たせる、または新規作成直後に案内を出す等のUI改善を検討すること
