@@ -16,3 +16,6 @@ memo/
 # OS
 .DS_Store
 Thumbs.db
+
+# Office（開いている間に作成される一時ロックファイル）
+~$*

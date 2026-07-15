@@ -117,6 +117,7 @@
 - [x] コンテンツアップロード・再生ブロック: レッスン視聴画面に`LearnWizLesson`（プロキシ経由iframe＋既存の手動完了ボタン）と`ScormLesson`（`scorm-again`を動的import、SCORMバージョンに応じ`Scorm12API`/`Scorm2004API`を`window.API`/`window.API_1484_11`にアタッチしてからiframe描画、完了イベントで`PUT .../progress`を自動呼び出し）を実装
 - [x] コンテンツアップロード・再生ブロック: 実データで動作確認済み（SCORM 1.2・SCORM 2004・LearnWizそれぞれの自作テストパッケージをアップロード→コース作成→受講登録→レッスン視聴でSCORM側から`window.parent.API`が同一オリジン経由で発見できること→完了操作で進捗APIが自動更新されること→全レッスン完了でコース修了画面へ遷移することまで一通りブラウザで確認）
 - [x] 管理者向け操作マニュアル: `docs/manual/admin_manual.md`を新規作成（本番URL`https://hs-lms.vercel.app`前提。ログイン・ユーザー管理・カテゴリ管理・コース管理・テスト管理・グループ管理・レポート・通知設定・よくあるトラブルの9章構成。実装済みの全管理画面のUI（`frontend/src/app/admin/`配下）を実際に確認した上で作成）
+- [x] 管理者向け操作マニュアル: `docs/manual/admin_manual.docx`をNode.jsの`docx`パッケージで生成（見出し1/見出し2スタイル、CSV列構成の表、⚠️注意書きの枠線+背景色ボックス、画面説明ごとの「【スクリーンショット】」プレースホルダー16箇所を含む）。生成スクリプトはリポジトリ外のスクラッチ領域で使い捨て、`.docx`本体のみリポジトリに配置。LibreOffice/pandocが環境に無かったため、docx内部XML（`word/document.xml`）を直接検査してテキスト内容・表・プレースホルダー数を確認する形で検証した（見た目のレンダリング確認は未実施）
 
 ## 未着手・進行中
 - [ ] CSRF対策（現状JWT Bearerのみでcookieを使っていないため優先度は下げているが、フロント実装時にcookie方式を採る場合は要対応）
