@@ -8,6 +8,7 @@ import type { AuthUser, Group, UserRole } from "@/lib/types";
 import { AdminHeader } from "../AdminHeader";
 import { NewUserModal } from "./NewUserModal";
 import { ImportUsersModal } from "./ImportUsersModal";
+import { EditUserModal } from "./EditUserModal";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   learner: "受講者",
@@ -26,6 +27,7 @@ export default function AdminUsersPage() {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [showNewUserModal, setShowNewUserModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<AuthUser | null>(null);
 
   function load() {
     authFetch<{ users: AuthUser[] }>("/v1/users")
@@ -125,6 +127,7 @@ export default function AdminUsersPage() {
                   <th className="px-4 py-3 font-medium">部署</th>
                   <th className="px-4 py-3 font-medium">ロール</th>
                   <th className="px-4 py-3 font-medium">状態</th>
+                  <th className="px-4 py-3 font-medium">編集</th>
                   <th className="px-4 py-3 font-medium">操作</th>
                 </tr>
               </thead>
@@ -166,6 +169,15 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <button
+                          onClick={() => setEditingUser(u)}
+                          disabled={isSelf || busyId === u.id}
+                          className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                        >
+                          編集
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
                           onClick={() => handleDelete(u)}
                           disabled={isSelf || busyId === u.id}
                           className="text-xs text-red-600 hover:underline disabled:opacity-50"
@@ -194,6 +206,13 @@ export default function AdminUsersPage() {
         <ImportUsersModal
           onClose={() => setShowImportModal(false)}
           onImported={load}
+        />
+      )}
+      {editingUser && (
+        <EditUserModal
+          targetUser={editingUser}
+          onClose={() => setEditingUser(null)}
+          onUpdated={load}
         />
       )}
     </main>

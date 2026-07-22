@@ -10,7 +10,9 @@ import {
   findUserById,
   findUserByEmail,
   updateUserAsAdmin,
+  updateAuthEmailAsAdmin,
   type UserProfileUpdate,
+  type AdminUserUpdate,
 } from "../services/userRepository";
 import { requestEmailChange } from "../lib/gotrueRest";
 import { uploadAvatar, findAvatarUrl, mimeToExtension } from "../services/avatarStorage";
@@ -139,6 +141,15 @@ usersRouter.post(
 const adminUpdateUserSchema = z.object({
   role: z.enum(["learner", "admin", "super_admin"]).optional(),
   isActive: z.boolean().optional(),
+  lastName: z.string().min(1).max(50).optional(),
+  firstName: z.string().min(1).max(50).optional(),
+  department: z.string().max(100).nullable().optional(),
+  hireDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD形式で指定してください")
+    .nullable()
+    .optional(),
+  email: z.string().email().optional(),
 });
 
 usersRouter.put(
@@ -147,13 +158,35 @@ usersRouter.put(
   requireRole("admin", "super_admin"),
   asyncHandler(async (req, res) => {
     if (req.params.id === req.appUser!.id) {
-      throw new HttpError(400, "self_modification_forbidden", "自分自身のロール・有効状態は変更できません");
+      throw new HttpError(400, "self_modification_forbidden", "自分自身の情報はこの画面から変更できません。プロフィール編集をご利用ください");
     }
 
     const existing = await findUserById(req.params.id);
     if (!existing) throw new HttpError(404, "user_not_found", "ユーザーが見つかりません");
 
-    const patch = adminUpdateUserSchema.parse(req.body);
+    const body = adminUpdateUserSchema.parse(req.body);
+
+    if (body.hireDate && Number.isNaN(Date.parse(body.hireDate))) {
+      throw new HttpError(400, "invalid_hire_date", "入社日の形式が正しくありません");
+    }
+
+    if (body.email && body.email !== existing.email) {
+      const duplicate = await findUserByEmail(body.email);
+      if (duplicate && duplicate.id !== existing.id) {
+        throw new HttpError(409, "email_already_exists", "このメールアドレスは既に登録されています");
+      }
+      await updateAuthEmailAsAdmin(existing.id, body.email);
+    }
+
+    const patch: AdminUserUpdate = {};
+    if (body.role !== undefined) patch.role = body.role;
+    if (body.isActive !== undefined) patch.isActive = body.isActive;
+    if (body.lastName !== undefined) patch.lastName = body.lastName;
+    if (body.firstName !== undefined) patch.firstName = body.firstName;
+    if (body.department !== undefined) patch.department = body.department;
+    if (body.hireDate !== undefined) patch.hireDate = body.hireDate;
+    if (body.email !== undefined) patch.email = body.email;
+
     const updated = await updateUserAsAdmin(req.params.id, patch);
     return res.status(200).json({ user: toPublicProfile(updated ?? existing) });
   }),

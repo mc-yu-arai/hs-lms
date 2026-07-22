@@ -510,3 +510,18 @@
 1. `docs/manual/admin_manual.docx`は生成時のプレースホルダー版ではなく、**ユーザーが実際のスクリーンショットを挿入した完成版**がリポジトリに入っている。今後`admin_manual.md`の内容を更新して docx を再生成する場合は、スクリーンショットが失われることをユーザーに事前に伝えること（再生成は新規プレースホルダーに戻ってしまう）
 2. `.gitignore`に`~$*`（Officeの一時ロックファイル）を追加済み。今後Word/Excel等のOfficeファイルをリポジトリで扱う際にロックファイルが誤ってコミットされる心配は無くなった
 3. コミット前にファイルサイズやタイムスタンプの不一致から「ユーザーが裏で作業中のファイルではないか」に気づき、上書きする前に確認したことが功を奏した。バイナリファイル（docx等）をコミットする際は、pushする直前に`git status`だけでなく実際のファイルサイズ・更新日時も確認する習慣を続けること
+
+## 2026-07-22（管理者向けユーザー管理に編集機能を追加）
+### 実施内容
+- ユーザーから、管理者画面のユーザー一覧に「編集」ボタンを追加し、姓・名・部署・入社日・メールアドレス（Supabase Auth側も同時更新）を変更できるようにする指示を受ける。既存の`PUT /v1/users/:id`を拡張する方針。着手前に`PROJECT_STATUS.md`・`SESSION_LOG.md`を確認し、既存実装（`PUT /v1/users/:id`はロール・有効状態のみ対応、自分自身へのPUTは`self_modification_forbidden`で全面禁止）を把握した
+- バックエンド: `backend/src/services/userRepository.ts`の`AdminUserUpdate`インターフェースに`lastName`/`firstName`/`department`/`hireDate`/`email`を追加し、`updateUserAsAdmin`のマッピングを拡張。新規関数`updateAuthEmailAsAdmin(userId, newEmail)`を追加し、`supabaseAdmin.auth.admin.updateUserById(userId, { email, email_confirm: true })`をservice_role権限で直接呼び出す設計にした。既存の`PUT /users/me`（本人による変更）が使う`requestEmailChange`（GoTrue REST APIへの本人アクセストークン渡し、確認メール方式）とは別経路である点に注意——管理者が他ユーザーの代わりに変更する操作のため、本人の確認メールを待たず即時反映する方が要件（「同時更新」）に合致すると判断した
+- `routes/users.ts`の`adminUpdateUserSchema`に`lastName`/`firstName`/`department`/`hireDate`/`email`を追加（`hireDate`のバリデーションはユーザー新規作成時の`createUserSchema`と同じ`YYYY-MM-DD`正規表現＋`Date.parse`チェックを踏襲）。ハンドラでは、emailが変更される場合のみ`findUserByEmail`で重複チェック（他ユーザーが使用中なら409 `email_already_exists`）→`updateAuthEmailAsAdmin`呼び出し（失敗時は400 `email_update_failed`、この時点で`public.users`はまだ更新しない）→成功後に`updateUserAsAdmin`で`public.users`側を更新、という順序にした。自分自身へのPUTを禁止する既存ガードはそのまま維持（管理者が自分の情報を変更する場合は`/profile`を使う想定）
+- `tests/users.admin.test.ts`にJestテスト7件追加（氏名・部署・入社日の変更、不正な入社日形式の拒否、メール変更時にSupabase Auth側`updateUserById`が正しい引数で呼ばれ`public.users`にも反映されること、メール重複時の409、Auth側更新が失敗した場合に`public.users`が変更されないこと、メール未変更時はSupabase Auth APIを呼ばないこと）。モック済み`supabaseAdmin.auth.admin`に`updateUserById`を追加し、`auth-error@example.com`宛てだと失敗を返すようにして異常系を再現した。バックエンド全体で158件、全てパス
+- フロントエンド: `frontend/src/app/admin/users/EditUserModal.tsx`を新規作成（既存の`NewUserModal.tsx`と同じUIパターン）。姓・名・メールアドレス・部署（任意）・入社日（任意）を対象ユーザーの現在値でプリフィルし、`PUT /v1/users/:id`へ送信。メール変更時にSupabase Auth側も即時同期される旨をフォーム内に注記した。`/admin/users`の一覧テーブルに「編集」列とボタンを追加し、自分自身の行は編集ボタンも無効化（バックエンドの`self_modification_forbidden`と一致させるため）
+- 実機動作確認: ローカルの開発サーバー（本番と同一のSupabaseプロジェクトを参照）で管理者としてログインし、明らかなテスト用アカウント（`sato-manual-test@example.com`、実在の社員データが混在する一覧の中から選定）に対して、①部署・入社日の変更→一覧への反映、②メールアドレス変更→一覧に新メールが反映されSupabase Auth側の`updateUserById`が実際に呼ばれること、③既存メールアドレス（`test@example.com`）への変更を試みて409エラーがモーダル内に表示されること、を確認。確認後はテストで変更した値（メール・部署・入社日）を全て元の状態に戻して後始末した
+- `.claude/launch.json`にHS-LMS用のdevサーバー設定が無かったため、プレビューツールが参照する側（ツールのデフォルト作業ディレクトリである別プロジェクト`C:\antigravity\LMS_Test`の`.claude/launch.json`。既存の`hs-lms-frontend`設定と同じファイル）に`hs-lms-backend`の設定を追記した（コード変更ではなくローカルのプレビュー起動設定のみ）
+
+### 次回セッションへの申し送り
+1. 今回のスコープはユーザー編集機能（姓・名・部署・入社日・メールアドレス）のみ。ロール・有効状態の変更は既存のインライン操作（一覧の select/button）のまま
+2. 管理者による他ユーザーのメールアドレス変更は、本人による変更（`/profile`、確認メール方式）と異なり確認メールを挟まず即時反映される設計である点を、必要であれば管理者向けマニュアル（`docs/manual/admin_manual.md`）のユーザー管理セクションにも追記を検討すること（今回はコード変更のみでマニュアル本文は未更新）
+3. パスワードの変更はスコープ外のまま（管理者が他ユーザーのパスワードを変更する手段は現状無い）

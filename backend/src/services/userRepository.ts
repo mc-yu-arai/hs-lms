@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase";
+import { HttpError } from "../middleware/errorHandler";
 
 export interface AppUser {
   id: string;
@@ -121,16 +122,38 @@ export async function listUsers(filters: ListUsersFilters): Promise<AppUser[]> {
 export interface AdminUserUpdate {
   role?: AppUser["role"];
   isActive?: boolean;
+  lastName?: string;
+  firstName?: string;
+  department?: string | null;
+  hireDate?: string | null;
+  email?: string;
 }
 
 export async function updateUserAsAdmin(userId: string, patch: AdminUserUpdate): Promise<AppUser | null> {
   const row: Record<string, unknown> = {};
   if (patch.role !== undefined) row.role = patch.role;
   if (patch.isActive !== undefined) row.is_active = patch.isActive;
+  if (patch.lastName !== undefined) row.last_name = patch.lastName;
+  if (patch.firstName !== undefined) row.first_name = patch.firstName;
+  if (patch.department !== undefined) row.department = patch.department;
+  if (patch.hireDate !== undefined) row.hire_date = patch.hireDate;
+  if (patch.email !== undefined) row.email = patch.email;
 
   const { data, error } = await supabaseAdmin.from("users").update(row).eq("id", userId).select("*").maybeSingle();
   if (error) throw error;
   return data as AppUser | null;
+}
+
+// 管理者によるメールアドレス変更は、本人による変更（requestEmailChange/確認メール方式）と異なり、
+// service_role権限でSupabase Auth側のemailを即時・直接更新する（確認メールを挟まない）。
+export async function updateAuthEmailAsAdmin(userId: string, newEmail: string): Promise<void> {
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    email: newEmail,
+    email_confirm: true,
+  });
+  if (error) {
+    throw new HttpError(400, "email_update_failed", error.message ?? "メールアドレスの更新に失敗しました");
+  }
 }
 
 export function toPublicProfile(user: AppUser, avatarUrl: string | null = null) {
