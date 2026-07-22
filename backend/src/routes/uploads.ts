@@ -3,10 +3,12 @@ import multer from "multer";
 import { asyncHandler, HttpError } from "../middleware/errorHandler";
 import { requireAuth, requireRole } from "../middleware/requireAuth";
 import { extractAndUploadLessonContent, LessonContentError } from "../services/lessonContentStorage";
+import { uploadLessonVideo, isSupportedVideoFile, LessonVideoError } from "../services/videoStorage";
 
 export const uploadsRouter = Router();
 
 const MAX_LESSON_CONTENT_SIZE = 300 * 1024 * 1024; // 300MB
+const MAX_LESSON_VIDEO_SIZE = 500 * 1024 * 1024; // 500MB
 
 const lessonContentUpload = multer({
   storage: multer.memoryStorage(),
@@ -14,6 +16,18 @@ const lessonContentUpload = multer({
   fileFilter: (_req, file, cb) => {
     if (!file.originalname.toLowerCase().endsWith(".zip")) {
       cb(new HttpError(400, "invalid_file", "zipファイルを指定してください"));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+const lessonVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_LESSON_VIDEO_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (!isSupportedVideoFile(file.originalname)) {
+      cb(new HttpError(400, "invalid_file", "MP4・MOV・AVI形式の動画ファイルを指定してください"));
       return;
     }
     cb(null, true);
@@ -34,6 +48,26 @@ uploadsRouter.post(
     } catch (err) {
       if (err instanceof LessonContentError) {
         throw new HttpError(400, "invalid_lesson_content", err.message);
+      }
+      throw err;
+    }
+  }),
+);
+
+uploadsRouter.post(
+  "/lesson-video",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  lessonVideoUpload.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new HttpError(400, "invalid_file", "動画ファイルを指定してください");
+
+    try {
+      const result = await uploadLessonVideo(req.file.buffer, req.file.originalname);
+      return res.status(201).json(result);
+    } catch (err) {
+      if (err instanceof LessonVideoError) {
+        throw new HttpError(400, "invalid_lesson_video", err.message);
       }
       throw err;
     }

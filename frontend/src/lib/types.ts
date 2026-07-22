@@ -75,6 +75,10 @@ export interface LessonContentUploadResult {
   scormVersion: ScormVersion | null;
 }
 
+export interface LessonVideoUploadResult {
+  contentUrl: string;
+}
+
 export interface ChapterSummary {
   id: string;
   title: string;

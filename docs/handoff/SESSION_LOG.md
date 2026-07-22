@@ -581,3 +581,19 @@
 1. **この環境には引き続きLibreOffice/Word/pandocが無く、Wordでの実際の見た目（新しい警告ボックスのレイアウト崩れ等）を目視確認できていない。** 次回、実際にWordで開いた際に新しく追加した警告ボックス（「2.1 新規作成」末尾）と「2.2 CSV一括インポート」の追記文が正しく表示されているか、既存のスクリーンショット16枚が引き続き正しく表示されているかを確認することを推奨する
 2. `docs/manual/admin_manual_with_screenshots_20260722.docx`は、今回の編集直前（`DEFAULT_USER_PASSWORD`の説明を追加する前）の、ユーザーがスクリーンショットを挿入した完成版のバックアップとしてリポジトリに追加した。今後何らかの理由で`admin_manual.docx`を復元したい場合の参照用。定期的に増え続けるとリポジトリが肥大化するため、不要になったら削除を検討すること
 3. 今回使った「既存docxをunzip→document.xmlを文字列置換で直接編集→rezip」という手法は、スクリーンショット等の埋め込みコンテンツを保持したまま軽微なテキスト変更を反映したい場合に有効。今後`admin_manual.md`に小規模な変更を加えるたびにdocx版へも反映する場合は、同じ手順（ゼロからの再生成ではなく差分編集）を使うこと
+4. ユーザーが実際にWordで開いて確認し、「レイアウト崩れ特になし、スクリーンショットもちゃんと移行できている」との回答を得た（次セッション冒頭で確認）。上記1の懸念は解消済み
+
+## 2026-07-22（続き5・動画アップロードブロックの実装）
+### 実施内容
+- ユーザーから、管理者画面のレッスン作成・編集画面（`CourseForm.tsx`）に動画（MP4/MOV/AVI、500MB上限）のアップロードUIを追加する指示を受ける。着手前に`PROJECT_STATUS.md`・`SESSION_LOG.md`を確認し、既存のSCORM/LearnWizアップロード実装（`POST /v1/uploads/lesson-content`、`lessonContentStorage.ts`、`CourseForm.tsx`のzipアップロードUI）のパターンを踏襲する方針にした
+- 既存実装の重要な差異に気づいた: SCORM/LearnWizの`contentUrl`はSupabase Storageの**相対パス**（例: `lesson-content/{uuid}/index.html`）で、レッスン視聴画面は同一オリジンプロキシ（`/api/lesson-content/[...path]`）経由で配信する設計だった。一方、動画レッスンの視聴画面（`ScormLesson`等と同じファイル内の動画用コンポーネント）は`<video src={lesson.contentUrl}>`のように**`contentUrl`を直接`<video>`のsrcに使う**既存実装だったため、動画のアップロードAPIはプロキシを経由しない**Supabase Storageの完全な公開URル**（`getPublicUrl()`の戻り値）をそのまま返す必要があると判断した。これはSCORM/LearnWizとは異なる設計判断だが、既存のレッスン視聴画面の実装に合わせた結果である
+- バックエンド: `backend/src/services/videoStorage.ts`を新規作成。拡張子（mp4/mov/avi、大文字小文字問わず）からContent-Typeを決定し、`{uuid}.{ext}`のパスで`videos`バケットへアップロード、`getPublicUrl()`で取得した公開URLを`{ contentUrl }`として返す。`backend/src/routes/uploads.ts`に`POST /lesson-video`（admin/super_admin限定、multer専用インスタンス500MB上限、拡張子ベースのfileFilterでmp4/mov/avi以外を拒否）を追加
+- `tests/lessonVideo.test.ts`を新規作成（アクセス制御・非対応拡張子の拒否・mp4/mov/avi＋大文字拡張子（`LESSON.MP4`）での正常アップロードとレスポンス形式の確認、計7件）。バックエンド合計166件全てパス
+- フロントエンド: `frontend/src/lib/types.ts`に`LessonVideoUploadResult`を追加。`CourseForm.tsx`のコンテンツ種別「動画」選択時の入力欄を、既存の手入力URL欄からSCORM/LearnWizと同じUIパターン（ファイル選択・アップロード中表示・エラー表示・格納先URL表示、`handleVideoSelected`）に変更。アップロード成功時は`updateLesson`で`contentUrl`を自動設定する。PDFのみ引き続き手入力URL欄のまま（今回のスコープ外、既存のelse分岐を維持）
+- バックエンド・フロントエンドとも型チェック（`tsc --noEmit`）はエラー無し
+- **Supabase Storageに`videos`という名前の公開バケット（Public: オン）がまだ存在しない**ため、実データでの動作確認はユーザーによるバケット作成後に行う必要がある。`PROJECT_STATUS.md`の「外部サービス側で追加設定が必要な項目」にチェック未了として追記した
+
+### 次回セッションへの申し送り
+1. **Supabase Storageに`videos`公開バケットの作成がまだ**。作成後、管理者画面でコースのレッスン種別を「動画」にしてMP4ファイルをアップロード→`content_url`に公開URLが自動設定されること→レッスン視聴画面で実際に動画が再生されることまで、実データでの動作確認をユーザー確認後に実施すること
+2. 動画アップロードのファイルサイズ上限（500MB）はmulterの`limits.fileSize`で制御しているのみで、Renderの無料/低位プランのリクエストボディサイズ上限やタイムアウト設定と衝突しないか、大きめのファイルで実際にアップロードして確認すること（SCORM/LearnWizの300MB上限では本番での大容量アップロードは未検証のまま）
+3. 動画アップロードもSCORM/LearnWizと同様、レッスンのライフサイクルから独立した設計（`POST/PUT /courses`の`chapters`全置換でレッスンIDが再生成される既存制約への対応は不要——動画はStorage上のファイル自体はレッスンIDに紐付いていないため、再アップロードしない限り既存ファイルは残り続ける。孤立ファイルの削除は今回のスコープ外）

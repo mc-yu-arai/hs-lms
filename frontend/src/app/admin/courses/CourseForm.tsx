@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
-import type { Category, Course, CourseDetail, LessonContentType, LessonContentUploadResult, ScormVersion } from "@/lib/types";
+import type {
+  Category,
+  Course,
+  CourseDetail,
+  LessonContentType,
+  LessonContentUploadResult,
+  LessonVideoUploadResult,
+  ScormVersion,
+} from "@/lib/types";
 
 const CONTENT_TYPE_OPTIONS: { value: LessonContentType; label: string }[] = [
   { value: "video", label: "動画" },
@@ -170,6 +178,29 @@ export function CourseForm({
         contentUrl: result.contentUrl,
         scormVersion: result.scormVersion,
       });
+      setUploadState((prev) => {
+        const next = { ...prev };
+        delete next[lessonKey];
+        return next;
+      });
+    } catch (err) {
+      setUploadState((prev) => ({
+        ...prev,
+        [lessonKey]: { status: "error", message: err instanceof ApiError ? err.message : "アップロードに失敗しました" },
+      }));
+    }
+  }
+
+  async function handleVideoSelected(chapterKey: string, lessonKey: string, file: File) {
+    setUploadState((prev) => ({ ...prev, [lessonKey]: { status: "uploading" } }));
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const result = await authFetch<LessonVideoUploadResult>("/v1/uploads/lesson-video", {
+        method: "POST",
+        body: formData,
+      });
+      updateLesson(chapterKey, lessonKey, { contentUrl: result.contentUrl });
       setUploadState((prev) => {
         const next = { ...prev };
         delete next[lessonKey];
@@ -442,6 +473,30 @@ export function CourseForm({
                                   <option value="2004">2004</option>
                                 </select>
                               </label>
+                            )}
+                          </div>
+                          {uploadState[lesson.key]?.status === "error" && (
+                            <p role="alert" className="text-xs text-red-600">
+                              {uploadState[lesson.key]?.message}
+                            </p>
+                          )}
+                          {lesson.contentUrl && <p className="truncate text-xs text-gray-500">格納先: {lesson.contentUrl}</p>}
+                        </div>
+                      ) : lesson.contentType === "video" ? (
+                        <div className="sm:col-span-2 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept=".mp4,.mov,.avi,video/mp4,video/quicktime,video/x-msvideo"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleVideoSelected(chapter.key, lesson.key, file);
+                                e.target.value = "";
+                              }}
+                              className="text-sm"
+                            />
+                            {uploadState[lesson.key]?.status === "uploading" && (
+                              <span className="text-xs text-gray-500">アップロード中...</span>
                             )}
                           </div>
                           {uploadState[lesson.key]?.status === "error" && (

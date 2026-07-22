@@ -125,6 +125,8 @@
 - [x] ユーザー編集機能フロントエンド: `frontend/src/app/admin/users/EditUserModal.tsx`を新規作成（`NewUserModal.tsx`と同様のパターン）。`/admin/users`の一覧テーブルに「編集」列・ボタンを追加し、クリックで対象ユーザーの現在値がプリフィルされたモーダルを開く。自分自身の行は編集ボタンも無効化（バックエンドの制約と一致させるため）
 - [x] ユーザー編集機能: 実データ（本番と同じSupabaseプロジェクトのローカル検証環境）で動作確認済み。テスト用アカウント`sato-manual-test@example.com`で、部署・入社日の変更→一覧への反映、メールアドレス変更→Supabase Auth側emailの即時同期、既存メールアドレスへの変更時の409エラー表示、を確認。確認後は元の値（`sato-manual-test@example.com`／総務部／入社日なし）に戻して後始末済み
 - [x] 初期パスワードの固定化（`DEFAULT_USER_PASSWORD`環境変数）: 手動作成・CSVインポート両方で使う`provisionUser`（`userImportService.ts`）が、`env.DEFAULT_USER_PASSWORD`が設定されていればそれを、未設定ならこれまで通り`generateRandomPassword()`を初期パスワードとして使うよう変更。`backend/src/config/env.ts`に`DEFAULT_USER_PASSWORD: z.string().min(8).optional()`を追加。Renderに`DEFAULT_USER_PASSWORD=TestPass1!`を設定すれば、以後作成する全テスターアカウントが同じ初期パスワードになる（ウェルカムメール本文への平文記載は従来通り）。Jestテスト2件追加（手動作成・CSVインポートそれぞれで固定パスワードが実際にSupabase Auth作成APIへ渡ることを確認、`userDefaultPassword.test.ts`。バックエンド合計159件全てパス）
+- [x] 動画アップロードブロック: `POST /v1/uploads/lesson-video`（admin/super_admin限定、multipart、500MB上限、MP4・MOV・AVIのみ拡張子で判定）を実装。`backend/src/services/videoStorage.ts`が拡張子からContent-Typeを決定して`videos`バケットへ`{uuid}.{ext}`としてアップロードし、`getPublicUrl()`で取得した**完全な公開URL**をそのまま返す設計にした（SCORM/LearnWizの`lesson-content`と異なり、動画はレッスン視聴画面の`<video src={lesson.contentUrl}>`が同一オリジンプロキシを経由せず`contentUrl`を直接使う既存実装のため、相対パスではなく公開URLをそのまま`content_url`に格納する必要がある）。Jestテスト7件追加（アクセス制御・非対応拡張子拒否・mp4/mov/avi＋大文字拡張子での正常アップロード、`lessonVideo.test.ts`。バックエンド合計166件全てパス）
+- [x] 動画アップロードブロック: `CourseForm.tsx`のコンテンツ種別「動画」選択時に、SCORM/LearnWizと同じUIパターン（ファイル選択・アップロード中表示・エラー表示・格納先URL表示）のアップロードUIを追加。アップロード成功時は`lesson.contentUrl`に返却された公開URLを自動設定する（`handleVideoSelected`）。PDFのみ引き続き手入力URL欄のまま（今回のスコープ外）
 
 ## 未着手・進行中
 - [ ] CSRF対策（現状JWT Bearerのみでcookieを使っていないため優先度は下げているが、フロント実装時にcookie方式を採る場合は要対応）
@@ -136,6 +138,7 @@
 - [ ] Supabaseダッシュボード → Authentication → URL Configuration の Redirect URLs に `http://localhost:3001/v1/auth/oauth/google/callback`（本番URLも later）を追加
 - [ ] Supabase Storageに `avatars` という名前の公開バケットを作成（`POST /users/me/avatar` が書き込み先として使用）
 - [x] Supabase Storageに `lesson-content` という名前の公開バケットを作成済み（SCORM/LearnWizのzip展開先。2026-07-14ユーザー確認）
+- [ ] **Supabase Storageに `videos` という名前の公開バケット（Public: オン）を作成すること**（`POST /v1/uploads/lesson-video` が書き込み先として使用。バケットが無いとアップロードAPIが失敗する）
 - [ ] **Vercelの環境変数に `SUPABASE_URL`（backend/.envの`SUPABASE_URL`と同じ値、`NEXT_PUBLIC_`接頭辞は付けない）を追加すること**。コンテンツ配信プロキシ`app/api/lesson-content/[...path]`が使用する。当初`NEXT_PUBLIC_SUPABASE_URL`という名前で案内していたが、このルートはサーバー側でしか実行されないため接頭辞は不要と判明し`SUPABASE_URL`に変更した（詳細は`SESSION_LOG.md`の2026-07-14の節を参照）。接頭辞無しの通常のサーバー用環境変数はビルド時に埋め込まれずリクエストの都度読まれるため、追加後は基本的にRedeploy不要（Vercelの実行環境が新しい値を次のリクエストから使う）
 
 ## 既知の問題・保留中の判断事項
