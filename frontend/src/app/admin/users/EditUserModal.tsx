@@ -22,8 +22,8 @@ export function EditUserModal({ targetUser, onClose, onUpdated }: EditUserModalP
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.SyntheticEvent) {
+    e?.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
@@ -120,7 +120,8 @@ export function EditUserModal({ targetUser, onClose, onUpdated }: EditUserModalP
               キャンセル
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleSubmit}
               disabled={isSubmitting}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
             >
