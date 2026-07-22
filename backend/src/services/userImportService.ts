@@ -30,7 +30,7 @@ function welcomeEmailHtml(email: string, password: string): string {
 // Supabase Authにアカウントを作成し、public.usersへ登録する。
 // public.usersへの登録に失敗した場合はAuthアカウントを削除して単体ロールバックする。
 async function provisionUser(input: NewUserInput): Promise<AppUser> {
-  const password = generateRandomPassword();
+  const password = env.DEFAULT_USER_PASSWORD ?? generateRandomPassword();
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email: input.email,

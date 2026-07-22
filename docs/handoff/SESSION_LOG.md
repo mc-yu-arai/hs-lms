@@ -552,3 +552,17 @@
 1. **今後、「コードをpushしてRenderのデプロイ画面で成功表示が出ているのに、本番の挙動が変わらない」という症状が出た場合は、まずRenderの「Clear build cache & deploy」を試すこと**。今回はこれで確実に解消した
 2. 本番環境の状態を直接検証する際、ブラウザタブを使い回すと`read_network_requests`の履歴が古いローカル検証の内容と混ざって読み取りづらくなることがある。本番の挙動をクリーンに確認したい場合は新しいタブを開いてから調査すること
 3. `javascript_tool`でページ内`fetch`を直接叩く手法は、アクセストークンをページのJSコンテキスト内で完結させたまま（外部に返却せず）本番APIの実際の挙動を検証する際に有効。ただし状態を変更する検証（今回は`role`変更のテストを試みたが自動判定によりブロックされた）は慎重に行うこと
+
+## 2026-07-22（続き3・初期パスワードの環境変数固定化）
+### 実施内容
+- ユーザーから、CSVインポート・ユーザー手動作成時の初期パスワードを環境変数`DEFAULT_USER_PASSWORD`で固定できるようにする指示を受ける（未設定時はこれまで通りランダム生成。Renderに`DEFAULT_USER_PASSWORD=TestPass1!`を設定して全テスターの初期パスワードを揃える運用を想定）
+- 手動作成（`POST /v1/users`）とCSVインポート（`POST /v1/users/import`）は共通の`provisionUser`（`backend/src/services/userImportService.ts`）を経由しており、初期パスワード生成箇所がこの1箇所に集約されていることを確認。`const password = generateRandomPassword();`を`const password = env.DEFAULT_USER_PASSWORD ?? generateRandomPassword();`に変更するだけで両方に反映される設計だった
+- `backend/src/config/env.ts`の`envSchema`に`DEFAULT_USER_PASSWORD: z.string().min(8).optional()`を追加（未設定でも起動時バリデーションは通る。設定する場合はパスワードポリシーと矛盾しないよう最低8文字のみZodで軽くチェック）
+- `.env.example`に`DEFAULT_USER_PASSWORD`の説明とコメントアウトされた設定例を追記
+- `tests/userDefaultPassword.test.ts`を新規作成。ファイル先頭で`process.env.DEFAULT_USER_PASSWORD = "TestPass1!"`を設定してから`../src/app`をimportすることで、そのテストファイル内でのみ固定パスワードが有効になるようにし（Jestは`setupFiles`をテストファイルごとに実行するため、他のテストファイルの挙動には影響しない）、手動作成・CSVインポートそれぞれで`supabaseAdmin.auth.admin.createUser`が`password: "TestPass1!"`付きで呼ばれることを確認する2件を追加。バックエンド合計159件全てパス
+- ローカルの`.env`は変更していない（`DEFAULT_USER_PASSWORD`未設定のまま）ため、これまで通りランダム生成が使われる。本番でのランダム/固定切り替えの実機確認はユーザーがRender側で`DEFAULT_USER_PASSWORD`を設定した後に行う想定
+- 変更をコミットしGitHubへpush
+
+### 次回セッションへの申し送り
+1. Renderのバックエンド環境変数に`DEFAULT_USER_PASSWORD=TestPass1!`を追加すること（追加後、直近のビルドキャッシュ問題の教訓を踏まえ、反映されない場合は「Clear build cache & deploy」を試すこと）
+2. 初期パスワードは固定値であっても引き続きウェルカムメール本文に平文で記載される仕様は変更していない。全テスターが同じ初期パスワードでログインできる状態は検証用途を想定したものであり、本番の実運用アカウント作成時は`DEFAULT_USER_PASSWORD`を未設定に戻す（またはRenderの環境変数自体を削除する）ことを推奨する旨、必要であれば運用マニュアルにも反映を検討すること

@@ -24,6 +24,8 @@ const envSchema = z.object({
   SESSION_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   PASSWORD_RESET_EXPIRES_MINUTES: z.coerce.number().int().positive().default(60),
   PORT: z.coerce.number().int().positive().default(3001),
+  // 設定時、ユーザー手動作成・CSVインポートの初期パスワードとしてランダム生成の代わりに使う（検証用の固定パスワード運用）
+  DEFAULT_USER_PASSWORD: z.string().min(8).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
