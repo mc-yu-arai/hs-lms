@@ -127,6 +127,7 @@
 - [x] 初期パスワードの固定化（`DEFAULT_USER_PASSWORD`環境変数）: 手動作成・CSVインポート両方で使う`provisionUser`（`userImportService.ts`）が、`env.DEFAULT_USER_PASSWORD`が設定されていればそれを、未設定ならこれまで通り`generateRandomPassword()`を初期パスワードとして使うよう変更。`backend/src/config/env.ts`に`DEFAULT_USER_PASSWORD: z.string().min(8).optional()`を追加。Renderに`DEFAULT_USER_PASSWORD=TestPass1!`を設定すれば、以後作成する全テスターアカウントが同じ初期パスワードになる（ウェルカムメール本文への平文記載は従来通り）。Jestテスト2件追加（手動作成・CSVインポートそれぞれで固定パスワードが実際にSupabase Auth作成APIへ渡ることを確認、`userDefaultPassword.test.ts`。バックエンド合計159件全てパス）
 - [x] 動画アップロードブロック: `POST /v1/uploads/lesson-video`（admin/super_admin限定、multipart、500MB上限、MP4・MOV・AVIのみ拡張子で判定）を実装。`backend/src/services/videoStorage.ts`が拡張子からContent-Typeを決定して`videos`バケットへ`{uuid}.{ext}`としてアップロードし、`getPublicUrl()`で取得した**完全な公開URL**をそのまま返す設計にした（SCORM/LearnWizの`lesson-content`と異なり、動画はレッスン視聴画面の`<video src={lesson.contentUrl}>`が同一オリジンプロキシを経由せず`contentUrl`を直接使う既存実装のため、相対パスではなく公開URLをそのまま`content_url`に格納する必要がある）。Jestテスト7件追加（アクセス制御・非対応拡張子拒否・mp4/mov/avi＋大文字拡張子での正常アップロード、`lessonVideo.test.ts`。バックエンド合計166件全てパス）
 - [x] 動画アップロードブロック: `CourseForm.tsx`のコンテンツ種別「動画」選択時に、SCORM/LearnWizと同じUIパターン（ファイル選択・アップロード中表示・エラー表示・格納先URL表示）のアップロードUIを追加。アップロード成功時は`lesson.contentUrl`に返却された公開URLを自動設定する（`handleVideoSelected`）。PDFのみ引き続き手入力URL欄のまま（今回のスコープ外）
+- [x] 動画アップロードブロック: Supabase Storageに`videos`公開バケットをユーザーが作成、実データで動作確認済み。ブラウザの自動操作ツールにネイティブファイル選択ダイアログを操作する手段が無いため、ログイン中のブラウザセッションのJS実行コンテキスト内から`POST /v1/uploads/lesson-video`を直接呼び出す形で検証（アクセストークンはページ内で完結させ外部へは返却していない）。①ダミーバイト列（2048バイト、`video/mp4`拡張子）のアップロードが201で成功し、`videos`バケットの公開URLが返ることを確認、②その公開URLに直接アクセスしてContent-Type`video/mp4`・バイト数一致で取得できることを確認（バケットの公開設定・Content-Type設定を確認）、③そのURLを`contentUrl`に持つ動画レッスンを含む検証用コース「動画アップロード機能検証コース」をAPI経由で作成→受講登録→レッスン視聴画面を開き、`<video>`要素の`src`/`currentSrc`が正しくアップロード済みURLに設定されていることをDOM上で確認。**アップロードしたのは実際に再生可能なコーデックを持つ動画ファイルではないため、実際の動画再生（コーデックデコード成功）そのものは未確認**（`video.error.code`が`4`=`MEDIA_ERR_SRC_NOT_SUPPORTED`になることを確認済みだが、これはダミーデータゆえの想定内の結果であり、DB→API→フロントエンド→`<video src>`の配線自体は正しく機能していることの確認としては十分と判断した。環境にffmpeg等の動画生成ツールが無く実物のmp4を用意できなかったための代替検証）。検証用コースはSupabase上にそのまま残っている（他ブロックの検証用コースと同様の運用）
 
 ## 未着手・進行中
 - [ ] CSRF対策（現状JWT Bearerのみでcookieを使っていないため優先度は下げているが、フロント実装時にcookie方式を採る場合は要対応）
@@ -138,7 +139,7 @@
 - [ ] Supabaseダッシュボード → Authentication → URL Configuration の Redirect URLs に `http://localhost:3001/v1/auth/oauth/google/callback`（本番URLも later）を追加
 - [ ] Supabase Storageに `avatars` という名前の公開バケットを作成（`POST /users/me/avatar` が書き込み先として使用）
 - [x] Supabase Storageに `lesson-content` という名前の公開バケットを作成済み（SCORM/LearnWizのzip展開先。2026-07-14ユーザー確認）
-- [ ] **Supabase Storageに `videos` という名前の公開バケット（Public: オン）を作成すること**（`POST /v1/uploads/lesson-video` が書き込み先として使用。バケットが無いとアップロードAPIが失敗する）
+- [x] Supabase Storageに `videos` という名前の公開バケットを作成済み（動画アップロード先。2026-07-22ユーザー確認）
 - [ ] **Vercelの環境変数に `SUPABASE_URL`（backend/.envの`SUPABASE_URL`と同じ値、`NEXT_PUBLIC_`接頭辞は付けない）を追加すること**。コンテンツ配信プロキシ`app/api/lesson-content/[...path]`が使用する。当初`NEXT_PUBLIC_SUPABASE_URL`という名前で案内していたが、このルートはサーバー側でしか実行されないため接頭辞は不要と判明し`SUPABASE_URL`に変更した（詳細は`SESSION_LOG.md`の2026-07-14の節を参照）。接頭辞無しの通常のサーバー用環境変数はビルド時に埋め込まれずリクエストの都度読まれるため、追加後は基本的にRedeploy不要（Vercelの実行環境が新しい値を次のリクエストから使う）
 
 ## 既知の問題・保留中の判断事項
