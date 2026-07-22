@@ -51,6 +51,71 @@ function newChapter(): ChapterDraft {
   return { key: newKey(), title: "", lessons: [newLesson()] };
 }
 
+function FileDropzone({
+  id,
+  accept,
+  uploading,
+  label,
+  onFileSelected,
+}: {
+  id: string;
+  accept: string;
+  uploading: boolean;
+  label: string;
+  onFileSelected: (file: File) => void;
+}) {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  return (
+    <label
+      htmlFor={id}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!uploading) setIsDragOver(true);
+      }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (uploading) return;
+        const file = e.dataTransfer.files?.[0];
+        if (file) onFileSelected(file);
+      }}
+      className={`flex items-center gap-3 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${
+        uploading
+          ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
+          : isDragOver
+            ? "cursor-pointer border-blue-400 bg-blue-50 text-blue-700"
+            : "cursor-pointer border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:bg-blue-50/50"
+      }`}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-6 w-6 flex-shrink-0">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 16.5V9m0 0-3 3m3-3 3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z"
+        />
+      </svg>
+      <span>
+        <span className="font-medium">{uploading ? "アップロード中..." : label}</span>
+        {!uploading && <span className="block text-xs text-gray-400">クリックして選択、またはドラッグ＆ドロップ</span>}
+      </span>
+      <input
+        id={id}
+        type="file"
+        accept={accept}
+        disabled={uploading}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onFileSelected(file);
+          e.target.value = "";
+        }}
+        className="hidden"
+      />
+    </label>
+  );
+}
+
 export interface CourseFormValues {
   title: string;
   description: string | null;
@@ -444,37 +509,29 @@ export function CourseForm({
                         />
                       ) : ZIP_CONTENT_TYPES.includes(lesson.contentType) ? (
                         <div className="sm:col-span-2 space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".zip"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleZipSelected(chapter.key, lesson.key, file);
-                                e.target.value = "";
-                              }}
-                              className="text-sm"
-                            />
-                            {uploadState[lesson.key]?.status === "uploading" && (
-                              <span className="text-xs text-gray-500">アップロード中...</span>
-                            )}
-                            {lesson.contentType === "scorm" && (
-                              <label className="flex items-center gap-1 text-xs text-gray-600">
-                                SCORMバージョン:
-                                <select
-                                  value={lesson.scormVersion ?? ""}
-                                  onChange={(e) =>
-                                    updateLesson(chapter.key, lesson.key, { scormVersion: (e.target.value || null) as ScormVersion | null })
-                                  }
-                                  className="rounded-md border border-gray-300 px-1.5 py-1 text-xs"
-                                >
-                                  <option value="">未判定</option>
-                                  <option value="1.2">1.2</option>
-                                  <option value="2004">2004</option>
-                                </select>
-                              </label>
-                            )}
-                          </div>
+                          <FileDropzone
+                            id={`zip-upload-${lesson.key}`}
+                            accept=".zip"
+                            uploading={uploadState[lesson.key]?.status === "uploading"}
+                            label="zipファイルを選択"
+                            onFileSelected={(file) => handleZipSelected(chapter.key, lesson.key, file)}
+                          />
+                          {lesson.contentType === "scorm" && (
+                            <label className="flex items-center gap-1 text-xs text-gray-600">
+                              SCORMバージョン:
+                              <select
+                                value={lesson.scormVersion ?? ""}
+                                onChange={(e) =>
+                                  updateLesson(chapter.key, lesson.key, { scormVersion: (e.target.value || null) as ScormVersion | null })
+                                }
+                                className="rounded-md border border-gray-300 px-1.5 py-1 text-xs"
+                              >
+                                <option value="">未判定</option>
+                                <option value="1.2">1.2</option>
+                                <option value="2004">2004</option>
+                              </select>
+                            </label>
+                          )}
                           {uploadState[lesson.key]?.status === "error" && (
                             <p role="alert" className="text-xs text-red-600">
                               {uploadState[lesson.key]?.message}
@@ -484,21 +541,13 @@ export function CourseForm({
                         </div>
                       ) : lesson.contentType === "video" ? (
                         <div className="sm:col-span-2 space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".mp4,.mov,.avi,video/mp4,video/quicktime,video/x-msvideo"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleVideoSelected(chapter.key, lesson.key, file);
-                                e.target.value = "";
-                              }}
-                              className="text-sm"
-                            />
-                            {uploadState[lesson.key]?.status === "uploading" && (
-                              <span className="text-xs text-gray-500">アップロード中...</span>
-                            )}
-                          </div>
+                          <FileDropzone
+                            id={`video-upload-${lesson.key}`}
+                            accept=".mp4,.mov,.avi,video/mp4,video/quicktime,video/x-msvideo"
+                            uploading={uploadState[lesson.key]?.status === "uploading"}
+                            label="動画ファイルを選択（MP4・MOV・AVI）"
+                            onFileSelected={(file) => handleVideoSelected(chapter.key, lesson.key, file)}
+                          />
                           {uploadState[lesson.key]?.status === "error" && (
                             <p role="alert" className="text-xs text-red-600">
                               {uploadState[lesson.key]?.message}
