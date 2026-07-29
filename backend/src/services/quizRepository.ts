@@ -202,3 +202,71 @@ export async function hasPassedQuiz(enrollmentId: string, quizId: string): Promi
   const attempts = await listAttemptsForEnrollment(enrollmentId, quizId);
   return attempts.some((a) => a.is_passed);
 }
+
+// CSVインポート用。対象コースにテストがまだ無い場合は仮タイトルで新規作成する
+export async function ensureQuizForCourse(courseId: string, defaultTitle: string): Promise<Quiz> {
+  const existing = await getQuizByCourseId(courseId);
+  if (existing) return existing;
+
+  const { data, error } = await supabaseAdmin
+    .from("quizzes")
+    .insert({ course_id: courseId, title: defaultTitle, description: null })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Quiz;
+}
+
+export async function getNextDisplayOrder(quizId: string): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("questions")
+    .select("display_order")
+    .eq("quiz_id", quizId)
+    .order("display_order", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data && data.length > 0 ? data[0].display_order + 1 : 0;
+}
+
+// CSVインポート用。既存の設問には触れず、新しい設問だけをdisplay_order = startOrder以降で追加する。
+// 挿入途中で失敗した場合は、このインポートで挿入済みの分だけを削除して巻き戻す(既存データには影響しない)。
+// 「置換」モードの場合、呼び出し元(quizImportService)が「新規追加が全件成功した後に古い設問を削除する」
+// 順序で呼ぶことで、挿入失敗時に既存データを失わずに済む設計にしている。
+export async function insertQuestionsIntoQuiz(
+  quizId: string,
+  questions: QuestionInput[],
+  startOrder: number,
+): Promise<void> {
+  const insertedQuestionIds: string[] = [];
+  try {
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      const { data: questionRow, error: questionError } = await supabaseAdmin
+        .from("questions")
+        .insert({
+          quiz_id: quizId,
+          question_text: question.questionText,
+          question_type: question.questionType,
+          display_order: startOrder + i,
+        })
+        .select("*")
+        .single();
+      if (questionError) throw questionError;
+      insertedQuestionIds.push(questionRow.id);
+
+      const choiceRows = question.choices.map((choice, j) => ({
+        question_id: questionRow.id,
+        choice_text: choice.choiceText,
+        is_correct: choice.isCorrect,
+        display_order: j,
+      }));
+      const { error: choiceError } = await supabaseAdmin.from("choices").insert(choiceRows);
+      if (choiceError) throw choiceError;
+    }
+  } catch (err) {
+    for (const id of insertedQuestionIds) {
+      await supabaseAdmin.from("questions").delete().eq("id", id);
+    }
+    throw err;
+  }
+}

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useRequireAdmin } from "@/lib/use-require-admin";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import type { QuestionType, QuizDetail } from "@/lib/types";
 import { AdminHeader } from "../../../AdminHeader";
+import { QuizImportModal } from "./QuizImportModal";
 
 interface ChoiceDraft {
   key: string;
@@ -47,10 +48,10 @@ export default function AdminQuizPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthorized) return;
-    authFetch<QuizDetail>(`/v1/courses/${courseId}/quiz`)
+  const loadQuiz = useCallback(() => {
+    return authFetch<QuizDetail>(`/v1/courses/${courseId}/quiz`)
       .then((res) => {
         setTitle(res.quiz.title);
         setDescription(res.quiz.description ?? "");
@@ -66,13 +67,16 @@ export default function AdminQuizPage() {
       .catch((err) => {
         if (err instanceof ApiError && err.status === 404) {
           // まだテストが無いコース。新規作成フォームとして空の状態から開始する
-          setIsLoaded(true);
           return;
         }
         setLoadError(err instanceof ApiError ? err.message : "テストの取得に失敗しました");
-      })
-      .finally(() => setIsLoaded(true));
-  }, [isAuthorized, authFetch, courseId]);
+      });
+  }, [authFetch, courseId]);
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+    loadQuiz().finally(() => setIsLoaded(true));
+  }, [isAuthorized, loadQuiz]);
 
   function updateQuestion(key: string, patch: Partial<QuestionDraft>) {
     setQuestions((prev) => prev.map((q) => (q.key === key ? { ...q, ...patch } : q)));
@@ -163,7 +167,16 @@ export default function AdminQuizPage() {
     <main className="min-h-screen bg-gray-50">
       <AdminHeader />
       <div className="mx-auto max-w-3xl px-4 py-8">
-        <h2 className="mb-1 text-lg font-bold text-gray-900">修了テスト編集</h2>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">修了テスト編集</h2>
+          <button
+            type="button"
+            onClick={() => setShowImportModal(true)}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            CSVでインポート
+          </button>
+        </div>
         <p className="mb-6 text-xs text-gray-400">保存すると既存の設問・選択肢は全て置き換わります（1コース1テスト）</p>
 
         {loadError && (
@@ -298,6 +311,16 @@ export default function AdminQuizPage() {
           </form>
         )}
       </div>
+
+      {showImportModal && (
+        <QuizImportModal
+          courseId={courseId}
+          onClose={() => setShowImportModal(false)}
+          onImported={() => {
+            loadQuiz();
+          }}
+        />
+      )}
     </main>
   );
 }

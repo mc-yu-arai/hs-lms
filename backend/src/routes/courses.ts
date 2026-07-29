@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { env } from "../config/env";
 import { asyncHandler, HttpError } from "../middleware/errorHandler";
@@ -34,8 +35,14 @@ import {
   hasPassedQuiz,
   type QuestionWithChoices,
 } from "../services/quizRepository";
+import { importQuizQuestionsFromCsv, buildQuizCsvTemplate, QuizCsvValidationError, type ImportMode } from "../services/quizImportService";
 
 export const coursesRouter = Router();
+
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+});
 
 function isAdmin(role: string) {
   return role === "admin" || role === "super_admin";
@@ -481,6 +488,59 @@ coursesRouter.get(
     return res.status(200).json({
       attempts: attempts.map((a) => ({ id: a.id, score: a.score, isPassed: a.is_passed, submittedAt: a.submitted_at })),
     });
+  }),
+);
+
+const importModeSchema = z.enum(["append", "replace"]);
+
+coursesRouter.post(
+  "/:id/quiz/import",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  csvUpload.single("file"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    if (!req.file) {
+      throw new HttpError(400, "file_required", "CSVファイルを指定してください");
+    }
+
+    const modeResult = importModeSchema.safeParse(req.query.mode);
+    if (!modeResult.success) {
+      throw new HttpError(400, "invalid_mode", "modeはappendまたはreplaceで指定してください");
+    }
+    const mode: ImportMode = modeResult.data;
+
+    try {
+      const result = await importQuizQuestionsFromCsv(course.id, req.file.buffer.toString("utf-8"), mode);
+      return res.status(201).json({
+        quiz: { id: result.quiz.id, title: result.quiz.title, description: result.quiz.description, passScore: course.pass_score },
+        questions: serializeQuestions(result.questions, true),
+        importedCount: result.importedCount,
+      });
+    } catch (err) {
+      if (err instanceof QuizCsvValidationError) {
+        return res.status(400).json({
+          error: { code: "csv_validation_error", message: err.message, rowErrors: err.rowErrors },
+        });
+      }
+      throw err;
+    }
+  }),
+);
+
+coursesRouter.get(
+  "/:id/quiz/import/template",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="quiz_import_template.csv"');
+    return res.status(200).send(buildQuizCsvTemplate());
   }),
 );
 

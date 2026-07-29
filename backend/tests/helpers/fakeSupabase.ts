@@ -18,6 +18,7 @@ function makeQueryBuilder(tableName: string, store: Map<string, Row[]>) {
   let singleMode: "single" | "maybeSingle" | null = null;
   let onConflictKey: string | null = null;
   let countOnly = false;
+  let limitCount: number | null = null;
 
   function table(): Row[] {
     if (!store.has(tableName)) store.set(tableName, []);
@@ -35,6 +36,7 @@ function makeQueryBuilder(tableName: string, store: Map<string, Row[]>) {
         });
       }
       if (countOnly) return { data: null, error: null, count: rows.length };
+      if (limitCount !== null) rows = rows.slice(0, limitCount);
       if (singleMode === "single") return { data: rows[0] ?? null, error: rows[0] ? null : { message: "no rows found" } };
       if (singleMode === "maybeSingle") return { data: rows[0] ?? null, error: null };
       return { data: rows, error: null };
@@ -124,6 +126,10 @@ function makeQueryBuilder(tableName: string, store: Map<string, Row[]>) {
     order: (col: string, opts?: { ascending?: boolean }) => {
       orderKey = col;
       orderAsc = opts?.ascending !== false;
+      return builder;
+    },
+    limit: (n: number) => {
+      limitCount = n;
       return builder;
     },
     single: () => {
