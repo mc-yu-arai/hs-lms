@@ -15,6 +15,7 @@ export interface Course {
   pass_score: number;
   is_published: boolean;
   is_mandatory: boolean;
+  is_limited: boolean;
   thumbnail_url: string | null;
   prerequisite_course_id: string | null;
   created_at: string;
@@ -147,6 +148,7 @@ export interface CourseInput {
   passScore?: number;
   isPublished?: boolean;
   isMandatory?: boolean;
+  isLimited?: boolean;
   thumbnailUrl?: string | null;
   prerequisiteCourseId?: string | null;
   chapters?: ChapterInput[];
@@ -162,6 +164,7 @@ function toCourseRow(input: CourseInput) {
     pass_score: input.passScore ?? 70,
     is_published: input.isPublished ?? false,
     is_mandatory: input.isMandatory ?? false,
+    is_limited: input.isLimited ?? false,
     thumbnail_url: input.thumbnailUrl ?? null,
     prerequisite_course_id: input.prerequisiteCourseId ?? null,
   };
@@ -226,6 +229,7 @@ export async function updateCourse(id: string, input: Partial<CourseInput>): Pro
   if (input.passScore !== undefined) sparsePatch.pass_score = patch.pass_score;
   if (input.isPublished !== undefined) sparsePatch.is_published = patch.is_published;
   if (input.isMandatory !== undefined) sparsePatch.is_mandatory = patch.is_mandatory;
+  if (input.isLimited !== undefined) sparsePatch.is_limited = patch.is_limited;
   if (input.thumbnailUrl !== undefined) sparsePatch.thumbnail_url = patch.thumbnail_url;
   if (input.prerequisiteCourseId !== undefined) sparsePatch.prerequisite_course_id = patch.prerequisite_course_id;
 
@@ -254,6 +258,27 @@ export async function countEnrollments(courseId: string): Promise<number> {
 export async function deleteCourse(id: string): Promise<void> {
   const { error } = await supabaseAdmin.from("courses").delete().eq("id", id);
   if (error) throw error;
+}
+
+// 限定公開コースの可視性判定用。ユーザーが所属する全グループに割り当て済みのコースIDを返す
+// (group_members × group_coursesの突き合わせ)。所属グループが無ければ空集合を返す
+export async function getAssignedCourseIdsForUserGroups(userId: string): Promise<Set<string>> {
+  const { data: memberships, error: memberError } = await supabaseAdmin
+    .from("group_members")
+    .select("group_id")
+    .eq("user_id", userId);
+  if (memberError) throw memberError;
+
+  const groupIds = [...new Set((memberships ?? []).map((m) => m.group_id as string))];
+  if (groupIds.length === 0) return new Set();
+
+  const { data: assignments, error: assignError } = await supabaseAdmin
+    .from("group_courses")
+    .select("course_id")
+    .in("group_id", groupIds);
+  if (assignError) throw assignError;
+
+  return new Set((assignments ?? []).map((a) => a.course_id as string));
 }
 
 export async function findEnrollment(userId: string, courseId: string): Promise<Enrollment | null> {

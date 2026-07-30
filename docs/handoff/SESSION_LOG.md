@@ -653,3 +653,24 @@
 2. コース「色々試す用」のテスト内容は今回の動作確認で書き換わっている（追加→置換の順で検証したため、最終的には検証用の1問のみが残っている）。元の内容に心当たりがあれば手動で復元してほしい
 3. 検証用管理者アカウント`quiz-import-test-admin@example.com`（パスワード`QuizTest1!`、role=admin、2FA無効）がSupabase上に残っている。他ブロックの検証用アカウントと同様の運用のため放置で問題ないが、不要であれば削除して構わない
 4. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること
+
+## 2026-07-30（コースのグループ限定公開ブロックの実装）
+### 実施内容
+- ユーザーから、コースに「限定公開」設定（グループ割り当て済みメンバーのみ閲覧・受講登録可能）を追加する指示を受ける。実装前に`PROJECT_STATUS.md`/`SESSION_LOG.md`、既存の`courseRepository.ts`・`groupRepository.ts`（`group_members`/`group_courses`のテーブル構造）・`routes/courses.ts`のコース一覧/詳細/受講登録エンドポイントを確認
+- 指示通り、まずDBスキーマ案（`ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS is_limited BOOLEAN NOT NULL DEFAULT false;`）をユーザーに提示してから実装を開始。新規テーブルは追加せず、既存の`group_members`×`group_courses`を突き合わせる方式にした（グループ管理ブロックの資産をそのまま再利用できるため）
+- `supabase/migrations/20260730000001_add_course_limited_access.sql`を作成し、ユーザーがSupabase側で適用（適用完了の連絡を受けてから実データ検証に進んだ）
+- バックエンド: `courseRepository.ts`に`Course.is_limited`・`CourseInput.isLimited`・`getAssignedCourseIdsForUserGroups(userId)`（ユーザーが所属する全グループに割り当て済みのコースID集合を返す）を追加。`routes/courses.ts`の`GET /courses`（一覧）・`GET /courses/:id`（詳細）・`POST /courses/:id/enroll`（受講登録）の3箇所に、`is_limited=true`かつ非adminの場合にこの集合との突き合わせで可視性・登録可否を判定するチェックを追加した（admin/super_adminは常に全件閲覧・登録可）
+- 受講登録は「既存enrollmentがあれば冪等に200を返す」処理を限定公開チェックより先に置くことで、後からグループ割り当てが外れても既存の受講登録自体は取り消されない設計にした（グループ管理ブロックの既存方針を踏襲）。詳細・受講登録とも対象外の場合は`course_not_found`（コースが存在しない場合と同じレスポンス）を返し、限定公開コースの存在自体を非対象者に漏らさないようにした
+- `tests/courseLimitedAccess.test.ts`を新規作成（10件: 一覧の非表示/表示（非メンバー/メンバー/admin）、詳細の404/200（同3パターン）、受講登録の404/201（同3パターン）、`isLimited`のPUTトグル）。バックエンド合計186件全てパス、`tsc --noEmit`もクリーン
+- フロントエンド: `CourseForm.tsx`に「限定公開にする」トグル（公開する/必須コースにするの下）を追加。ユーザーからの追加依頼を受け、`/admin/courses`一覧にも`isPublished`バッジの隣に`isLimited`時のみ表示される黄色の「限定」バッジを追加し、一覧から一目で判別できるようにした。`tsc --noEmit`もクリーン
+- 実データでの動作確認: 両devサーバーを`preview_start`で起動。検証用に一時的な学習者アカウント2件（`limited-course-member-test@example.com`＝グループ所属あり、`limited-course-nonmember-test@example.com`＝所属なし）をSupabase上に作成するスクリプトを実行
+  - 既存コース「色々試す用」を一時的に限定公開にし、検証用グループ「限定公開検証グループ」を作成→所属ありアカウントをメンバー追加→「色々試す用」を割り当て（既存メンバーへの自動受講登録も確認）
+  - 所属なしアカウントでログイン→ダッシュボードのコースカタログから「色々試す用」が消えていることを確認、直接URL（`/courses/:id`）にアクセスすると`404 course_not_found`で「コースが見つかりません」表示になることを確認、ブラウザのJS実行コンテキストからAPI直叩きで`POST .../enroll`を呼んでも404で拒否されることを確認
+  - 所属ありアカウントでログイン→コースカタログにも「受講中コース一覧」にも「色々試す用」が表示されていることを確認（グループ割り当て時の自動受講登録により既に受講登録済み）
+  - 確認後、「色々試す用」の`isLimited`をfalseに戻して原状回復。検証用の一時スクリプトは削除。検証用グループ・検証用学習者アカウントは他ブロックの検証用データと同様の運用でSupabase上に残置
+- `PROJECT_STATUS.md`・`DB_SCHEMA.md`にコースのグループ限定公開ブロックの完了内容を追記
+
+### 次回セッションへの申し送り
+1. コースのグループ限定公開ブロックは実データでの動作確認まで完了し、機能的に完結した
+2. 検証用グループ「限定公開検証グループ」と検証用学習者アカウント2件（`limited-course-member-test@example.com`/`limited-course-nonmember-test@example.com`、いずれもパスワード`LimitedTest1!`）がSupabase上に残っている。他ブロックの検証用データと同様の運用のため放置で問題ないが、不要であれば削除して構わない
+3. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること

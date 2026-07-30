@@ -125,6 +125,7 @@ export interface CourseFormValues {
   passScore: number;
   isPublished: boolean;
   isMandatory: boolean;
+  isLimited: boolean;
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
   chapters: {
@@ -161,6 +162,7 @@ export function CourseForm({
   const [passScore, setPassScore] = useState(initial?.course.passScore?.toString() ?? "70");
   const [isPublished, setIsPublished] = useState(initial?.course.isPublished ?? false);
   const [isMandatory, setIsMandatory] = useState(initial?.course.isMandatory ?? false);
+  const [isLimited, setIsLimited] = useState(initial?.course.isLimited ?? false);
   const [thumbnailUrl, setThumbnailUrl] = useState(initial?.course.thumbnailUrl ?? "");
   const [prerequisiteCourseId, setPrerequisiteCourseId] = useState(initial?.course.prerequisiteCourseId ?? "");
   const [chapters, setChapters] = useState<ChapterDraft[]>(
@@ -292,6 +294,7 @@ export function CourseForm({
       passScore: passScore ? Number(passScore) : 70,
       isPublished,
       isMandatory,
+      isLimited,
       thumbnailUrl: thumbnailUrl || null,
       prerequisiteCourseId: prerequisiteCourseId || null,
       chapters: chapters.map((c) => ({
@@ -418,6 +421,10 @@ export function CourseForm({
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={isMandatory} onChange={(e) => setIsMandatory(e.target.checked)} className="h-4 w-4" />
             必須コースにする
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isLimited} onChange={(e) => setIsLimited(e.target.checked)} className="h-4 w-4" />
+            限定公開にする（割り当てたグループのメンバーのみ閲覧・受講登録可能）
           </label>
         </div>
       </section>

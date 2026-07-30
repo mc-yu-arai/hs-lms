@@ -23,6 +23,7 @@ import {
   getChapterById,
   upsertLessonProgress,
   recalculateEnrollmentProgress,
+  getAssignedCourseIdsForUserGroups,
   type CourseLevel,
   type ChapterWithLessons,
 } from "../services/courseRepository";
@@ -60,6 +61,7 @@ function serializeCourse(course: Awaited<ReturnType<typeof getCourseById>>) {
     passScore: course.pass_score,
     isPublished: course.is_published,
     isMandatory: course.is_mandatory,
+    isLimited: course.is_limited,
     thumbnailUrl: course.thumbnail_url,
     prerequisiteCourseId: course.prerequisite_course_id,
     createdAt: course.created_at,
@@ -104,7 +106,15 @@ coursesRouter.get(
       publishedOnly: !isAdmin(req.appUser!.role),
     });
 
-    return res.status(200).json({ courses: courses.map(serializeCourse) });
+    // 限定公開コースは、所属グループに割り当てられているユーザー(またはadmin)にのみ表示する
+    const visibleCourses = isAdmin(req.appUser!.role)
+      ? courses
+      : await (async () => {
+          const assignedCourseIds = await getAssignedCourseIdsForUserGroups(req.appUser!.id);
+          return courses.filter((c) => !c.is_limited || assignedCourseIds.has(c.id));
+        })();
+
+    return res.status(200).json({ courses: visibleCourses.map(serializeCourse) });
   }),
 );
 
@@ -115,6 +125,13 @@ coursesRouter.get(
     const course = await getCourseById(req.params.id);
     if (!course || (!course.is_published && !isAdmin(req.appUser!.role))) {
       throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    }
+
+    if (course.is_limited && !isAdmin(req.appUser!.role)) {
+      const assignedCourseIds = await getAssignedCourseIdsForUserGroups(req.appUser!.id);
+      if (!assignedCourseIds.has(course.id)) {
+        throw new HttpError(404, "course_not_found", "コースが見つかりません");
+      }
     }
 
     const enrollment = await findEnrollment(req.appUser!.id, course.id);
@@ -155,6 +172,7 @@ const courseCreateSchema = z.object({
   passScore: z.number().int().min(0).max(100).optional(),
   isPublished: z.boolean().optional(),
   isMandatory: z.boolean().optional(),
+  isLimited: z.boolean().optional(),
   thumbnailUrl: z.string().url().nullable().optional(),
   prerequisiteCourseId: z.string().uuid().nullable().optional(),
   chapters: z.array(chapterSchema).default([]),
@@ -221,6 +239,13 @@ coursesRouter.post(
     const existing = await findEnrollment(req.appUser!.id, course.id);
     if (existing) {
       return res.status(200).json({ enrollment: existing });
+    }
+
+    if (course.is_limited && !isAdmin(req.appUser!.role)) {
+      const assignedCourseIds = await getAssignedCourseIdsForUserGroups(req.appUser!.id);
+      if (!assignedCourseIds.has(course.id)) {
+        throw new HttpError(404, "course_not_found", "コースが見つかりません");
+      }
     }
 
     if (course.prerequisite_course_id) {

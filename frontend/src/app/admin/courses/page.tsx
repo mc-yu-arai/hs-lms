@@ -109,13 +109,18 @@ export default function AdminCoursesPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{LEVEL_LABEL[course.level]}</td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          course.isPublished ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {course.isPublished ? "公開中" : "非公開"}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            course.isPublished ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {course.isPublished ? "公開中" : "非公開"}
+                        </span>
+                        {course.isLimited && (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">限定</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-3 text-xs">

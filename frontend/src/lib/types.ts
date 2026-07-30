@@ -31,6 +31,7 @@ export interface Course {
   passScore: number;
   isPublished: boolean;
   isMandatory: boolean;
+  isLimited: boolean;
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
 }

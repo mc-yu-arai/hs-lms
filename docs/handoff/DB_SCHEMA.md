@@ -53,6 +53,7 @@ CREATE TABLE public.courses (
   pass_score INTEGER DEFAULT 70,
   is_published BOOLEAN DEFAULT false,
   is_mandatory BOOLEAN DEFAULT false,
+  is_limited BOOLEAN NOT NULL DEFAULT false, -- true: 割り当てられたグループのメンバーのみ閲覧・受講登録可能（グループ限定公開ブロックで追加）
   thumbnail_url VARCHAR(500),
   prerequisite_course_id UUID REFERENCES public.courses(id),
   created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -247,6 +248,14 @@ CREATE TABLE public.group_courses (
 - どちらも`findEnrollment`で既存有無を確認してから作成する冪等設計（既存の`POST /courses/:id/enroll`と同じ判断基準）。作成時は`notifyEnrollmentCompleted`も呼び出し、通知ブロックの`enrollment_completed`ログに記録される。
 - メンバー削除・コース割り当て解除・グループ削除のいずれも、既に作成された`enrollments`（進捗含む）はそのまま残す。グループはあくまで「受講登録を一括で作る/管理する」ための入り口であり、受講履歴の所有権はグループに紐付けない設計とした。
 
+## コースのグループ限定公開ブロック
+
+`courses.is_limited = true`のコースは、`group_courses`でそのコースが割り当てられたグループに所属する（`group_members`）ユーザーのみ閲覧・受講登録できる。新規テーブルは追加せず、既存の`group_members`×`group_courses`を突き合わせて判定する（`courseRepository.ts`の`getAssignedCourseIdsForUserGroups`）。
+
+- **対象エンドポイント**: `GET /v1/courses`（一覧、`is_limited`コースのうち非対象者には非表示）、`GET /v1/courses/:id`（詳細、非対象者には404）、`POST /v1/courses/:id/enroll`（受講登録、非対象者は404で拒否）。いずれもadmin/super_adminは`is_limited`に関わらず常に閲覧・登録可能。
+- **既存の受講登録には遡及しない**: `POST /enroll`は「既存enrollmentがあれば冪等に200を返す」処理が限定公開チェックより先に評価されるため、後からグループ割り当てが外れても既存の受講登録自体は取り消されない（グループ管理ブロックの「グループ変更は既存enrollmentsに影響しない」という既存方針と一貫）。
+- **存在の秘匿**: 詳細・受講登録のいずれも、対象外の場合は`course_not_found`（コース自体が存在しない場合と同じレスポンス）を返し、限定公開コースが存在すること自体を非対象者に知らせない設計にした。
+
 ## コンテンツアップロード・再生ブロック（SCORM/LearnWiz）
 
 zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase Storageの公開バケット`lesson-content`に展開して保存する。DBスキーマの変更は`lessons.content_type`への`'learnwiz'`追加と`scorm_version`カラム追加のみ（新規テーブルは無し）。
@@ -267,6 +276,7 @@ zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase 
 | `supabase/migrations/20260707000001_create_notification_tables.sql` | `notification_settings`/`notification_logs` 作成 | 適用済み（2026-07-07ユーザー確認） |
 | `supabase/migrations/20260707000002_create_group_tables.sql` | `groups`/`group_members`/`group_courses` 作成 | 適用済み（2026-07-07ユーザー確認） |
 | `supabase/migrations/20260710000001_add_lesson_content_upload.sql` | `lessons.content_type`に`'learnwiz'`追加、`scorm_version`カラム追加 | 適用済み（2026-07-14ユーザー確認） |
+| `supabase/migrations/20260730000001_add_course_limited_access.sql` | `courses.is_limited`カラム追加（グループ限定公開） | 適用済み（2026-07-30ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）
