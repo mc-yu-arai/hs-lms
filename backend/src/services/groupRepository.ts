@@ -209,6 +209,34 @@ export async function listGroupCourses(groupId: string): Promise<GroupCourseWith
   });
 }
 
+export interface CourseGroupAssignment {
+  id: string;
+  assigned_at: string;
+  group: Group;
+}
+
+// コース編集画面の「グループ割り当て」セクション用。listGroupCourses(groupId)の逆引き(courseId起点)
+export async function listGroupsForCourse(courseId: string): Promise<CourseGroupAssignment[]> {
+  const { data: rows, error } = await supabaseAdmin
+    .from("group_courses")
+    .select("*")
+    .eq("course_id", courseId)
+    .order("assigned_at", { ascending: true });
+  if (error) throw error;
+  if (!rows || rows.length === 0) return [];
+
+  const groupIds = [...new Set(rows.map((r) => r.group_id as string))];
+  const { data: groups, error: groupError } = await supabaseAdmin.from("groups").select("*").in("id", groupIds);
+  if (groupError) throw groupError;
+
+  const groupById = new Map((groups ?? []).map((g) => [g.id as string, g as Group]));
+
+  return rows.flatMap((row) => {
+    const group = groupById.get(row.group_id);
+    return group ? [{ id: row.id, assigned_at: row.assigned_at, group }] : [];
+  });
+}
+
 export async function findGroupCourse(groupId: string, courseId: string): Promise<GroupCourse | null> {
   const { data, error } = await supabaseAdmin
     .from("group_courses")

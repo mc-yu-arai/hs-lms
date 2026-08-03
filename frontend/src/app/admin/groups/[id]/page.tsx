@@ -32,8 +32,6 @@ export default function AdminGroupDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedCourseId, setSelectedCourseId] = useState("");
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   function loadDetail() {
@@ -77,13 +75,12 @@ export default function AdminGroupDetailPage() {
     }
   }
 
-  async function handleAddMember() {
-    if (!selectedUserId) return;
+  async function handleAddMember(userId: string) {
+    if (!userId) return;
     setIsBusy(true);
     setError(null);
     try {
-      await authFetch(`/v1/groups/${groupId}/members`, { method: "POST", body: { userId: selectedUserId } });
-      setSelectedUserId("");
+      await authFetch(`/v1/groups/${groupId}/members`, { method: "POST", body: { userId } });
       loadDetail();
       loadReport();
     } catch (err) {
@@ -108,13 +105,12 @@ export default function AdminGroupDetailPage() {
     }
   }
 
-  async function handleAssignCourse() {
-    if (!selectedCourseId) return;
+  async function handleAssignCourse(courseId: string) {
+    if (!courseId) return;
     setIsBusy(true);
     setError(null);
     try {
-      await authFetch(`/v1/groups/${groupId}/courses`, { method: "POST", body: { courseId: selectedCourseId } });
-      setSelectedCourseId("");
+      await authFetch(`/v1/groups/${groupId}/courses`, { method: "POST", body: { courseId } });
       loadDetail();
       loadReport();
     } catch (err) {
@@ -223,100 +219,90 @@ export default function AdminGroupDetailPage() {
               </form>
             </section>
 
-            <section className="mb-6 rounded-xl bg-white p-6 shadow-sm">
-              <h3 className="mb-4 text-base font-semibold text-gray-900">メンバー（{detail.members.length}名）</h3>
-              <div className="mb-4 flex gap-2">
+            <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <section className="rounded-xl bg-white p-6 shadow-sm">
+                <h3 className="mb-4 text-base font-semibold text-gray-900">メンバー（{detail.members.length}名）</h3>
                 <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value=""
+                  onChange={(e) => handleAddMember(e.target.value)}
+                  disabled={isBusy || availableUsers.length === 0}
+                  className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-50"
                 >
-                  <option value="">追加するユーザーを選択...</option>
+                  <option value="">
+                    {availableUsers.length === 0 ? "追加できるユーザーがいません" : "ユーザーを選択すると追加されます..."}
+                  </option>
                   {availableUsers.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.lastName} {u.firstName}（{u.email}）
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={handleAddMember}
-                  disabled={!selectedUserId || isBusy}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-                >
-                  追加
-                </button>
-              </div>
-              {detail.members.length === 0 ? (
-                <p className="text-sm text-gray-500">メンバーはまだいません。</p>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {detail.members.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between py-2 text-sm">
-                      <span className="text-gray-900">
-                        {m.user.lastName} {m.user.firstName}
-                        <span className="ml-2 text-xs text-gray-400">{m.user.email}</span>
-                      </span>
-                      <button
-                        onClick={() => handleRemoveMember(m.user.id)}
-                        disabled={isBusy}
-                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                      >
-                        削除
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                {detail.members.length === 0 ? (
+                  <p className="text-sm text-gray-500">メンバーはまだいません。</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {detail.members.map((m) => (
+                      <li key={m.id} className="flex items-center justify-between py-2 text-sm">
+                        <span className="text-gray-900">
+                          {m.user.lastName} {m.user.firstName}
+                          <span className="ml-2 text-xs text-gray-400">{m.user.email}</span>
+                        </span>
+                        <button
+                          onClick={() => handleRemoveMember(m.user.id)}
+                          disabled={isBusy}
+                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        >
+                          削除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
 
-            <section className="mb-6 rounded-xl bg-white p-6 shadow-sm">
-              <h3 className="mb-4 text-base font-semibold text-gray-900">割り当てコース（{detail.courses.length}件）</h3>
-              <p className="mb-4 text-xs text-gray-500">
-                コースを割り当てると、現在のメンバー全員に受講登録が自動作成されます。以後メンバーを追加すると、その時点で割り当て済みのコースにも自動で受講登録されます。
-              </p>
-              <div className="mb-4 flex gap-2">
+              <section className="rounded-xl bg-white p-6 shadow-sm">
+                <h3 className="mb-1 text-base font-semibold text-gray-900">割り当てコース（{detail.courses.length}件）</h3>
+                <p className="mb-4 text-xs text-gray-500">
+                  コースを割り当てると、現在のメンバー全員に受講登録が自動作成されます。以後メンバーを追加すると、その時点で割り当て済みのコースにも自動で受講登録されます。
+                </p>
                 <select
-                  value={selectedCourseId}
-                  onChange={(e) => setSelectedCourseId(e.target.value)}
-                  className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value=""
+                  onChange={(e) => handleAssignCourse(e.target.value)}
+                  disabled={isBusy || availableCourses.length === 0}
+                  className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:opacity-50"
                 >
-                  <option value="">割り当てるコースを選択...</option>
+                  <option value="">
+                    {availableCourses.length === 0 ? "割り当てられるコースがありません" : "コースを選択すると割り当てられます..."}
+                  </option>
                   {availableCourses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.title}
                     </option>
                   ))}
                 </select>
-                <button
-                  onClick={handleAssignCourse}
-                  disabled={!selectedCourseId || isBusy}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-                >
-                  割り当て
-                </button>
-              </div>
-              {detail.courses.length === 0 ? (
-                <p className="text-sm text-gray-500">割り当てられたコースはありません。</p>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {detail.courses.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between py-2 text-sm">
-                      <span className="text-gray-900">
-                        {c.course.title}
-                        <span className="ml-2 text-xs text-gray-400">{LEVEL_LABEL[c.course.level]}</span>
-                      </span>
-                      <button
-                        onClick={() => handleRemoveCourse(c.course.id)}
-                        disabled={isBusy}
-                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                      >
-                        解除
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                {detail.courses.length === 0 ? (
+                  <p className="text-sm text-gray-500">割り当てられたコースはありません。</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {detail.courses.map((c) => (
+                      <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+                        <span className="text-gray-900">
+                          {c.course.title}
+                          <span className="ml-2 text-xs text-gray-400">{LEVEL_LABEL[c.course.level]}</span>
+                        </span>
+                        <button
+                          onClick={() => handleRemoveCourse(c.course.id)}
+                          disabled={isBusy}
+                          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                        >
+                          解除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </div>
 
             <section className="rounded-xl bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">

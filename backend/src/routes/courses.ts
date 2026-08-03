@@ -37,6 +37,7 @@ import {
   type QuestionWithChoices,
 } from "../services/quizRepository";
 import { importQuizQuestionsFromCsv, buildQuizCsvTemplate, QuizCsvValidationError, type ImportMode } from "../services/quizImportService";
+import { listGroupsForCourse } from "../services/groupRepository";
 
 export const coursesRouter = Router();
 
@@ -202,6 +203,25 @@ coursesRouter.put(
     const input = courseUpdateSchema.parse(req.body);
     const course = await updateCourse(req.params.id, input);
     return res.status(200).json({ course: serializeCourse(course) });
+  }),
+);
+
+coursesRouter.get(
+  "/:id/groups",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+
+    const groups = await listGroupsForCourse(course.id);
+    return res.status(200).json({
+      groups: groups.map((g) => ({
+        id: g.id,
+        assignedAt: g.assigned_at,
+        group: { id: g.group.id, name: g.group.name, description: g.group.description },
+      })),
+    });
   }),
 );
 

@@ -674,3 +674,25 @@
 1. コースのグループ限定公開ブロックは実データでの動作確認まで完了し、機能的に完結した
 2. 検証用グループ「限定公開検証グループ」と検証用学習者アカウント2件（`limited-course-member-test@example.com`/`limited-course-nonmember-test@example.com`、いずれもパスワード`LimitedTest1!`）がSupabase上に残っている。他ブロックの検証用データと同様の運用のため放置で問題ないが、不要であれば削除して構わない
 3. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること
+
+## 2026-07-30（続き・コース/グループ設定画面のUI改善）
+### 実施内容
+- ユーザーから、コース編集画面へのグループ割り当てセクション追加と、グループ編集画面のレイアウト改善（メンバー管理とコース割り当てを1画面で見渡せるように、より少ない操作で追加できるように）の指示を受ける。実装前に`PROJECT_STATUS.md`/`SESSION_LOG.md`と、現行の`/admin/groups/[id]`の実装（`frontend/src/app/admin/groups/[id]/page.tsx`）・`routes/groups.ts`・`groupRepository.ts`を確認
+- 確認の結果、メンバー管理とコース割り当ては指示文にあった「別タブ」ではなく、既に同一ページ内の縦積み2セクションだった。そのためグループ側の改善は「タブ統合」ではなく「横並び2カラム化（スクロールなしで両方を見渡せるように）」と読み替えて実装した
+- バックエンド: `groupRepository.ts`に`listGroupsForCourse(courseId)`を追加（既存の`listGroupCourses(groupId)`の逆引き。`group_courses`をcourse_idで引いてから`groups`と2クエリ結合する既存パターンを踏襲）。`routes/courses.ts`に`GET /:id/groups`（admin/super_admin限定）を追加。コース側からのグループ割り当て・解除は新規の書き込みエンドポイントを作らず、既存の`POST/DELETE /v1/groups/:id/courses`をそのまま呼び出す設計にした（グループ管理ブロックの`assignGroupCourseAndSyncEnrollments`による自動受講登録もそのまま効くため）
+- フロントエンド: `frontend/src/app/admin/courses/CourseGroupsSection.tsx`を新規作成し、`CourseForm.tsx`（`/admin/courses/[id]/edit`が使用）に組み込んだ。新規作成画面ではコースIDが無いため非表示（`{initial && <CourseGroupsSection courseId={initial.course.id} />}`）。これに伴い`CourseForm`の`return`を`<form>`単体から`<div><form>...</form>{...}</div>`という構成に変更した（グループ割り当ては独立してAPIを呼ぶため、コース本体の保存フォームの外に置く必要があったため）
+- 「より少ない操作で」という要望に対し、`CourseGroupsSection`と`/admin/groups/[id]`の両方で、従来の「セレクトで選ぶ→別ボタンを押す」の2ステップを「セレクトで選ぶと即座に追加される」1ステップに変更した（`value=""`固定のセレクトで`onChange`から直接API呼び出し。追加後はAPI再取得で選択肢から自然に除外されるため、見た目上セレクトはリセットされる）
+- 「1画面で見渡せるように」という要望に対し、`/admin/groups/[id]`の「メンバー」「割り当てコース」の2セクションを`grid grid-cols-1 lg:grid-cols-2`で横並びに変更した
+- `tests/courseGroups.test.ts`を新規作成（5件: アクセス制御・存在しないコースの404・空リスト・複数グループの一覧表示・既存の`POST/DELETE /v1/groups/:id/courses`経由での割り当て/解除がコース側の一覧に正しく反映されることを確認）。バックエンド合計191件全てパス（`quiz.test.ts`の1件がフルスイート実行時にまれにタイムアウトするフレーキーな挙動を確認したが、単体実行では常にパスしており今回の変更とは無関係と判断し、再実行で全件パスを確認した）。`tsc --noEmit`もクリーン（バックエンド・フロントエンドとも）
+- 実データでの動作確認: 両devサーバーを`preview_start`で起動し、前回セッションで作成済みの検証用管理者アカウントでログイン
+  - コース編集画面（「色々試す用」）で「グループ割り当て」セクションが表示され、既存の割り当て（「限定公開検証グループ」）が一覧に出ていることを確認
+  - セレクトで別グループ（「テスト確認用」）を選択すると即座に`POST /v1/groups/:id/courses`が201で成功し一覧に反映されることを確認
+  - グループ編集画面が2カラムグリッド（算出スタイルで`grid-template-columns: 484px 484px`を確認）で表示されることを確認
+  - 同画面でもセレクト選択だけで`POST /v1/groups/:id/members`が201で成功することを確認
+  - `window.confirm`はブラウザ自動操作ツールから応答できないため、解除・削除ボタンの動作確認は「ボタンの`onClick`が`window.confirm`→DELETE APIという既存の経路を辿ること」をコードで確認した上で、後始末（テストで追加した割り当て・メンバーの削除）は同じDELETE APIを直接呼ぶ形で実施した
+- `PROJECT_STATUS.md`にコース・グループ設定UI改善ブロックの完了内容を追記
+
+### 次回セッションへの申し送り
+1. コース・グループ設定UI改善ブロックは実データでの動作確認まで完了し、機能的に完結した
+2. `window.confirm`を使った削除確認ダイアログは、ブラウザ自動操作ツールでは操作できない既知の制約が今回も再確認された（過去セッションのネイティブファイル選択ダイアログと同様）。実際の削除確認フローの目視確認は次回、実ブラウザでの手動操作を推奨する
+3. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること

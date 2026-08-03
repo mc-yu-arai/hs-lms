@@ -257,6 +257,12 @@ export interface GroupDetail {
   courses: GroupCourseAssignment[];
 }
 
+export interface CourseGroupAssignment {
+  id: string;
+  assignedAt: string;
+  group: { id: string; name: string; description: string | null };
+}
+
 export interface CsvRowError {
   row: number;
   message: string;

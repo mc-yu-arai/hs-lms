@@ -12,6 +12,7 @@ import type {
   LessonVideoUploadResult,
   ScormVersion,
 } from "@/lib/types";
+import { CourseGroupsSection } from "./CourseGroupsSection";
 
 const CONTENT_TYPE_OPTIONS: { value: LessonContentType; label: string }[] = [
   { value: "video", label: "動画" },
@@ -321,7 +322,8 @@ export function CourseForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h3 className="mb-4 text-base font-semibold text-gray-900">基本情報</h3>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -607,6 +609,9 @@ export function CourseForm({
       >
         {isSubmitting ? "保存中..." : submitLabel}
       </button>
-    </form>
+      </form>
+
+      {initial && <CourseGroupsSection courseId={initial.course.id} />}
+    </div>
   );
 }
