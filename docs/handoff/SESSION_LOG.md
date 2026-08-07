@@ -729,3 +729,20 @@
 2. 今回の確認はDOM計測（横スクロール有無・要素サイズ・グリッド列数）が中心で、実機やスクリーンショットでの目視確認はできていない。可能であれば次回、実際のスマートフォン端末かブラウザの開発者ツールでの目視確認を推奨する
 3. 検証用に「Content Types Demo」コース（管理者アカウント`quiz-import-test-admin@example.com`の受講登録）を完了状態にした。他ブロックの検証用データと同様の運用でSupabase上に残置している
 4. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること
+
+## 2026-08-05（続き2・スマホでのLearnWiz/SCORMピンチズーム不具合の修正）
+### 実施内容
+- ユーザーから、スマホでLearnWiz/SCORMのiframeと動画コンテンツに「①ピンチズームが全く効かない」「②コンテンツが見切れる」という実機報告を受け、修正指示を受ける。指示では`app/layout.tsx`等のviewportメタタグに`user-scalable=no`/`maximum-scale=1`が無いか確認し、あれば削除するよう案内があった
+- まず`app/layout.tsx`が実際に出力するviewportメタタグをブラウザで直接確認したところ、`width=device-width, initial-scale=1`のみでズーム制限は無く、原因はここではないと判明
+- 次に、レッスン視聴画面のiframe(`iframe.contentDocument`)を直接読み、LearnWizパッケージの`index.html`自体に埋め込まれたviewportメタタグを確認したところ、`initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no`という制限的な値になっていることを発見。**アプリ自身のコードではなく、LearnWiz/SCORMパッケージ生成ツール側が埋め込むHTMLが根本原因**と特定した
+- サードパーティパッケージの中身は直接編集できないが、これらは`frontend/src/app/api/lesson-content/[...path]/route.ts`が同一オリジンプロキシとして配信しているため、配信時にHTMLを書き換えることで対処可能と判断。同ルートに`sanitizeViewportMeta()`を追加し、HTMLレスポンス（`content-type`が`text/html`のもの）に限り本文を`upstream.text()`で読み込み、viewportメタタグの`content`属性のみを`width=device-width, initial-scale=1`に書き換えて返すようにした。属性の並び順（`name`が先か`content`が先か）を問わない正規表現にし、viewport以外のmetaタグやHTML以外のレスポンス（動画等のバイナリ、Rangeリクエスト対応が必要なもの）は従来通り`upstream.body`をストリームのまま素通しする設計にした
+- あわせて`app/layout.tsx`にNext.jsの自動生成に任せない明示的な`viewport`エクスポート（`width: "device-width", initialScale: 1`、`maximumScale`/`userScalable`は意図的に未設定）を追加し、アプリ本体側の設定も将来にわたって保証されるようにした
+- 「②コンテンツが見切れる」への対策として、ユーザー指定の通りレッスン視聴画面の`<video>`・`<iframe>`（PDF/LearnWiz/SCORM）に`max-w-full`を明示追加（`w-full`で実質的には幅100%だったが、指定の対策をそのまま明示反映した）
+- `npx tsc --noEmit`はクリーン
+- 実データでの動作確認: devサーバーを起動し、修正前後でLearnWizレッスンの`iframe.contentDocument`からviewportメタタグを直接読み取って比較。修正前は`initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no`、修正後は`width=device-width, initial-scale=1`に書き換わっていることを確認（初回はブラウザの`cache-control: public, max-age=3600`によるキャッシュの影響で古い値のままだったため、クエリ文字列でキャッシュバストして再読み込みし反映を確認した）。SCORM側のレッスン（そもそもviewportメタタグが無いパッケージ）でもエラーなく動作することを確認。モバイル幅(375px)でのページ全体の横スクロール無し、iframeが画面幅の91%（343px/375px）まで表示されることも再確認
+- `PROJECT_STATUS.md`に修正内容を追記
+
+### 次回セッションへの申し送り
+1. スマホでのLearnWiz/SCORMピンチズーム不具合の修正は実データでの動作確認まで完了し、機能的に完結した
+2. 今回の修正はプロキシ側でのHTML書き換えという性質上、ズーム制限メタタグ以外の理由でSCORM/LearnWizパッケージが正しく表示されない場合（パッケージ自体が固定ピクセル幅でレイアウトされている等）は別途調査が必要。今回確認した範囲（LearnWiz1件・SCORM2件）では問題は見られなかった
+3. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること

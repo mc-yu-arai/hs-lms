@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/lib/auth-context";
 import "./globals.css";
@@ -16,6 +16,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HS-LMS",
   description: "派遣会社向け学習管理システム",
+};
+
+// Next.jsの自動生成に任せず明示的に宣言する。スマホでのピンチズームを禁止する
+// maximumScale/userScalableは意図的に設定しない(過去にレッスン視聴画面でズームできない
+// という報告があったため、原因調査の一環として自オリジンの設定を明示・固定した)。
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

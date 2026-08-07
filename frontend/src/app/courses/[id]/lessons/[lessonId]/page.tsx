@@ -265,7 +265,7 @@ function VideoLesson({
       ref={videoRef}
       src={lesson.contentUrl}
       controls
-      className="w-full rounded-lg bg-black"
+      className="w-full max-w-full rounded-lg bg-black"
       onLoadedMetadata={handleLoadedMetadata}
       onTimeUpdate={() => saveIfDue(false)}
       onPause={() => saveIfDue(true)}
@@ -280,7 +280,7 @@ function PdfLesson({ lesson }: { lesson: LessonSummary }) {
   if (!lesson.contentUrl) {
     return <p className="text-sm text-gray-500">PDFのURLが設定されていません。</p>;
   }
-  return <iframe src={lesson.contentUrl} title={lesson.title} className="h-[75vh] w-full rounded-lg border border-gray-200" />;
+  return <iframe src={lesson.contentUrl} title={lesson.title} className="h-[75vh] w-full max-w-full rounded-lg border border-gray-200" />;
 }
 
 function TextLesson({
@@ -321,7 +321,7 @@ function LearnWizLesson({ lesson }: { lesson: LessonSummary }) {
     <iframe
       src={lessonContentProxyUrl(lesson.contentUrl)}
       title={lesson.title}
-      className="h-[75vh] w-full rounded-lg border border-gray-200"
+      className="h-[75vh] w-full max-w-full rounded-lg border border-gray-200"
     />
   );
 }
@@ -407,7 +407,7 @@ function ScormLesson({
     <iframe
       src={lessonContentProxyUrl(lesson.contentUrl)}
       title={lesson.title}
-      className="h-[75vh] w-full rounded-lg border border-gray-200"
+      className="h-[75vh] w-full max-w-full rounded-lg border border-gray-200"
     />
   );
 }
