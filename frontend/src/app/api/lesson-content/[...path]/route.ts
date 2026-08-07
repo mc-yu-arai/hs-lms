@@ -107,6 +107,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     const html = await upstream.text();
     const sanitized = sanitizeViewportMeta(html);
     responseHeaders.delete("content-length"); // 書き換えでバイト数が変わるため上流の値は無効
+    // upstream(Supabase Storage)の`public, max-age=3600`をそのまま流用すると、このプロキシ側の書き換え
+    // ロジック(sanitizeViewportMeta等)を修正してデプロイしても、ブラウザ/Vercelエッジキャッシュ双方に
+    // 最大1時間古いHTMLが残り続け「直したのにスマホでは直っていない」という状態を招く
+    // (2026-08-07の実機検証で、本番のindex.htmlがx-vercel-cache: HITで返っていたことから発覚)。
+    // HTMLは書き換え後のバイト数もごく小さいため、常に最新を配信するようno-cacheで上書きする
+    // (ブラウザにキャッシュさせない訳ではなくETagでの再検証を毎回強制する。js/css/画像等は対象外)。
+    responseHeaders.set("cache-control", "no-cache");
     return new Response(sanitized, { status: upstream.status, headers: responseHeaders });
   }
 
