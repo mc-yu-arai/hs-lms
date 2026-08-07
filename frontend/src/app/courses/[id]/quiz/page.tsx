@@ -111,22 +111,22 @@ export default function QuizTakingPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">HS-LMS</h1>
-          <a href={`/courses/${courseId}`} className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:py-4">
+          <h1 className="text-base font-bold text-gray-900 sm:text-lg">HS-LMS</h1>
+          <a href={`/courses/${courseId}`} className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
             コース詳細に戻る
           </a>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-4 py-8">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
         <h2 className="mb-1 text-lg font-bold text-gray-900">{quizDetail.quiz.title}</h2>
         {quizDetail.quiz.description && <p className="mb-2 text-sm text-gray-600">{quizDetail.quiz.description}</p>}
         <p className="mb-6 text-xs text-gray-400">合格ライン: {quizDetail.quiz.passScore}点以上（何度でも再受験できます）</p>
 
         <div className="space-y-6">
           {quizDetail.questions.map((question, index) => (
-            <section key={question.id} className="rounded-xl bg-white p-6 shadow-sm">
+            <section key={question.id} className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h3 className="mb-1 text-sm font-semibold text-gray-900">
                 問{index + 1}. {question.questionText}
               </h3>
@@ -139,7 +139,7 @@ export default function QuizTakingPage() {
                   return (
                     <label
                       key={choice.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-800 transition-colors hover:bg-gray-50"
+                      className="flex cursor-pointer items-center gap-3 rounded-md border border-gray-200 px-3 py-3 text-sm text-gray-800 transition-colors hover:bg-gray-50"
                     >
                       <input
                         type={question.questionType === "single_choice" ? "radio" : "checkbox"}
@@ -173,7 +173,7 @@ export default function QuizTakingPage() {
         <button
           onClick={handleSubmit}
           disabled={isSubmitting || !isAnswerComplete}
-          className="mt-6 w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          className="mt-6 w-full rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
           {isSubmitting ? "採点中..." : "回答を提出する"}
         </button>

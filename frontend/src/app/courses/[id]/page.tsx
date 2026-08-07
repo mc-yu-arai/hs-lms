@@ -110,16 +110,16 @@ export default function CourseDetailPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">HS-LMS</h1>
-          <a href="/dashboard" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:py-4">
+          <h1 className="text-base font-bold text-gray-900 sm:text-lg">HS-LMS</h1>
+          <a href="/dashboard" className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
             ダッシュボードに戻る
           </a>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <section className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+        <section className="mb-6 rounded-xl bg-white p-4 shadow-sm sm:p-6">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
               {LEVEL_LABEL[detail.course.level]}
@@ -186,7 +186,7 @@ export default function CourseDetailPage() {
           )}
         </section>
 
-        <section className="rounded-xl bg-white p-6 shadow-sm">
+        <section className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
           <h3 className="mb-4 text-base font-semibold text-gray-900">カリキュラム</h3>
           <div className="space-y-6">
             {detail.chapters.map((chapter) => (

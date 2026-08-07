@@ -57,16 +57,16 @@ export default function QuizResultPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">HS-LMS</h1>
-          <a href={`/courses/${courseId}`} className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:py-4">
+          <h1 className="text-base font-bold text-gray-900 sm:text-lg">HS-LMS</h1>
+          <a href={`/courses/${courseId}`} className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
             コース詳細に戻る
           </a>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <section className="mb-6 rounded-xl bg-white p-8 text-center shadow-sm">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+        <section className="mb-6 rounded-xl bg-white p-5 text-center shadow-sm sm:p-8">
           {score === null ? (
             <p className="text-sm text-gray-500">受験履歴がまだありません。</p>
           ) : (
@@ -109,7 +109,7 @@ export default function QuizResultPage() {
         </section>
 
         {stored && (
-          <section className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+          <section className="mb-6 rounded-xl bg-white p-4 shadow-sm sm:p-6">
             <h3 className="mb-4 text-base font-semibold text-gray-900">設問ごとの結果</h3>
             <div className="space-y-4">
               {stored.result.questionResults.map((qr, index) => {
@@ -152,7 +152,7 @@ export default function QuizResultPage() {
           </section>
         )}
 
-        <section className="rounded-xl bg-white p-6 shadow-sm">
+        <section className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
           <h3 className="mb-4 text-base font-semibold text-gray-900">受験履歴</h3>
           {historyError && (
             <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -162,32 +162,34 @@ export default function QuizResultPage() {
           {!historyError && history === null && <p className="text-sm text-gray-500">読み込み中...</p>}
           {history !== null && history.length === 0 && <p className="text-sm text-gray-500">まだ受験していません。</p>}
           {history !== null && history.length > 0 && (
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-xs text-gray-400">
-                  <th className="py-2 font-medium">受験日時</th>
-                  <th className="py-2 font-medium">得点</th>
-                  <th className="py-2 font-medium">結果</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((attempt) => (
-                  <tr key={attempt.id} className="border-b border-gray-100 last:border-0">
-                    <td className="py-2 text-gray-700">{new Date(attempt.submittedAt).toLocaleString("ja-JP")}</td>
-                    <td className="py-2 text-gray-700">{attempt.score}点</td>
-                    <td className="py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          attempt.isPassed ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-                        }`}
-                      >
-                        {attempt.isPassed ? "合格" : "不合格"}
-                      </span>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[420px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-xs text-gray-400">
+                    <th className="py-2 font-medium">受験日時</th>
+                    <th className="py-2 font-medium">得点</th>
+                    <th className="py-2 font-medium">結果</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {history.map((attempt) => (
+                    <tr key={attempt.id} className="border-b border-gray-100 last:border-0">
+                      <td className="py-2 whitespace-nowrap text-gray-700">{new Date(attempt.submittedAt).toLocaleString("ja-JP")}</td>
+                      <td className="py-2 text-gray-700">{attempt.score}点</td>
+                      <td className="py-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            attempt.isPassed ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {attempt.isPassed ? "合格" : "不合格"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>

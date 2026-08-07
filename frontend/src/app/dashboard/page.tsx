@@ -71,28 +71,28 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">HS-LMS</h1>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:py-4">
+          <h1 className="text-base font-bold text-gray-900 sm:text-lg">HS-LMS</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:gap-4">
+            <span className="hidden text-sm text-gray-600 sm:inline">
               {user.lastName} {user.firstName} さん
             </span>
             {(user.role === "admin" || user.role === "super_admin") && (
-              <a href="/admin/courses" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+              <a href="/admin/courses" className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
                 管理者メニュー
               </a>
             )}
-            <a href="/profile" className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+            <a href="/profile" className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
               プロフィール編集
             </a>
-            <button onClick={() => logout()} className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+            <button onClick={() => logout()} className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
               ログアウト
             </button>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
         <section className="mb-8 rounded-xl bg-white p-6 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">
             ようこそ、{user.lastName} {user.firstName} さん

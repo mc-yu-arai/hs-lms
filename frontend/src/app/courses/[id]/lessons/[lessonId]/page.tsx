@@ -153,22 +153,22 @@ export default function LessonViewerPage() {
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">HS-LMS</h1>
-          <a href={`/courses/${courseId}`} className="text-sm text-gray-500 transition-colors hover:text-gray-700">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-3 py-3 sm:px-4 sm:py-4">
+          <h1 className="text-base font-bold text-gray-900 sm:text-lg">HS-LMS</h1>
+          <a href={`/courses/${courseId}`} className="text-xs text-gray-500 transition-colors hover:text-gray-700 sm:text-sm">
             コース詳細に戻る
           </a>
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <p className="mb-1 text-xs text-gray-400">{detail.course.title}</p>
-        <h2 className="mb-4 text-lg font-bold text-gray-900">
+      <div className="mx-auto max-w-4xl px-2 py-4 sm:px-4 sm:py-8">
+        <p className="mb-1 px-1 text-xs text-gray-400">{detail.course.title}</p>
+        <h2 className="mb-4 px-1 text-base font-bold text-gray-900 sm:text-lg">
           {lesson.title}
           {lessonProgress?.isCompleted && <span className="ml-2 text-sm font-normal text-green-700">✓ 完了済み</span>}
         </h2>
 
-        <section className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+        <section className="mb-6 rounded-xl bg-white p-2 shadow-sm sm:p-6">
           {lesson.contentType === "video" && (
             <VideoLesson lesson={lesson} initialPositionSeconds={lessonProgress?.lastPositionSeconds ?? null} onProgress={handleVideoProgress} onEnded={handleVideoEnded} />
           )}
@@ -180,7 +180,7 @@ export default function LessonViewerPage() {
           )}
 
           {(lesson.contentType === "pdf" || lesson.contentType === "text" || lesson.contentType === "learnwiz") && (
-            <div className="mt-4">
+            <div className="mt-4 px-1">
               {actionError && (
                 <p role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
                   {actionError}
@@ -189,7 +189,7 @@ export default function LessonViewerPage() {
               <button
                 onClick={handleMarkComplete}
                 disabled={isSubmitting || lessonProgress?.isCompleted}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
               >
                 {lessonProgress?.isCompleted ? "完了済み" : isSubmitting ? "更新中..." : "このレッスンを完了する"}
               </button>
@@ -197,11 +197,11 @@ export default function LessonViewerPage() {
           )}
         </section>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 px-1">
           {prevLesson ? (
             <a
               href={`/courses/${courseId}/lessons/${prevLesson.id}`}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              className="rounded-md border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:px-4"
             >
               ← 前のレッスン
             </a>
@@ -211,7 +211,7 @@ export default function LessonViewerPage() {
           {nextLesson && (
             <a
               href={`/courses/${courseId}/lessons/${nextLesson.id}`}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              className="rounded-md border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:px-4"
             >
               次のレッスン →
             </a>
@@ -280,7 +280,7 @@ function PdfLesson({ lesson }: { lesson: LessonSummary }) {
   if (!lesson.contentUrl) {
     return <p className="text-sm text-gray-500">PDFのURLが設定されていません。</p>;
   }
-  return <iframe src={lesson.contentUrl} title={lesson.title} className="h-[70vh] w-full rounded-lg border border-gray-200" />;
+  return <iframe src={lesson.contentUrl} title={lesson.title} className="h-[75vh] w-full rounded-lg border border-gray-200" />;
 }
 
 function TextLesson({
@@ -306,7 +306,7 @@ function TextLesson({
   return (
     <div
       onScroll={handleScroll}
-      className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-white p-6 text-sm leading-relaxed text-gray-800"
+      className="max-h-[65vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-white p-4 text-sm leading-relaxed text-gray-800 sm:p-6"
     >
       {lesson.contentBody || "本文が設定されていません。"}
     </div>
@@ -321,7 +321,7 @@ function LearnWizLesson({ lesson }: { lesson: LessonSummary }) {
     <iframe
       src={lessonContentProxyUrl(lesson.contentUrl)}
       title={lesson.title}
-      className="h-[70vh] w-full rounded-lg border border-gray-200"
+      className="h-[75vh] w-full rounded-lg border border-gray-200"
     />
   );
 }
@@ -407,7 +407,7 @@ function ScormLesson({
     <iframe
       src={lessonContentProxyUrl(lesson.contentUrl)}
       title={lesson.title}
-      className="h-[70vh] w-full rounded-lg border border-gray-200"
+      className="h-[75vh] w-full rounded-lg border border-gray-200"
     />
   );
 }
