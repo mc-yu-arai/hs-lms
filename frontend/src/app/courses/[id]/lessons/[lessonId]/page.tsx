@@ -333,18 +333,27 @@ function FullscreenIframe({ src, title }: { src: string; title: string }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
 
-  // 全画面のON/OFF切り替え時、iframe内のLearnWiz/SCORMコンテンツ側に自身のレイアウト再計算
-  // (スケーリング処理)を促す。「全画面を解除して再度全画面にすると表示が崩れて小さくなるが、
-  // 端末を回転させると直る」という報告があり、回転時は実際の画面サイズが変わってresizeイベントが
-  // 飛ぶのに対し、全画面のON/OFFは(特にフォールバック側で)祖先要素のCSSクラスを変更しているだけで、
-  // iframeの中身(その`contentWindow`)には resize イベントが届いていないことが原因と考えられる。
-  // ここでは(1)contentWindowへ明示的にresizeイベントを発火させることに加え、(2)iframe自体の幅を
-  // 1px分だけ一時的に変えて実際にボックスサイズを変化させ、ブラウザ自身にも再レイアウトさせることで、
-  // resizeイベントの購読有無によらずスケーリングが再計算されるようにしている
-  // (iOS Safariでは祖先要素のCSSクラス変更だけではiframe内部へresizeが伝播しないことがある既知の挙動)。
+  // iframe内のLearnWiz/SCORMコンテンツ側に自身のレイアウト再計算(スケーリング処理)を促す。
+  // 当初は「isFullscreen/isFallbackが変化した瞬間に1回だけ」発火させていたが、以下2パターンで
+  // 症状が再現することが分かった:
+  //   (A) 縦持ち→全画面→横持ち: 全画面中の実回転はOK(ブラウザの本物のresizeが飛ぶため)
+  //   (B) 縦持ち→横持ち→全画面: 崩れる(横向きのまま全画面化した場合、LearnWiz側は
+  //       「拡大(横向け)モード」自体には切り替わるが、スケール計算がその時点でまだ確定して
+  //       いないコンテナサイズを拾ってしまい、小さいまま拡大モードになる)
+  // (B)はコンテナのCSSクラスが切り替わった直後の一瞬(iOSのアドレスバー収縮アニメーション等と
+  // 重なるタイミング)にだけ発生し、固定の遅延1回では取りこぼすことがあるため、発火経路を
+  // 複数用意して冗長化している:
+  //   1. isFullscreen/isFallbackの切り替え時に即座に発火(反応の速さを優先)
+  //   2. コンテナの実ボックスサイズ変化を`ResizeObserver`で直接検知して発火
+  //      (全画面のON/OFFに限らず、回転やアドレスバーの出し入れ等どんな原因でも拾える)
+  //   3. 上記いずれかがトリガーされた後、レイアウトが遅れて確定するケースに備え、
+  //      一定時間を空けて複数回(0.1秒後・0.4秒後・1秒後)再発火する
+  // いずれの発火も同じdebounce付きの関数に集約しているため、短時間に何度呼ばれても
+  // 実際の処理(resizeイベント発火+iframe幅のnudge)は連続で重複実行されない。
   useEffect(() => {
+    const container = containerRef.current;
     const iframe = iframeRef.current;
-    if (!iframe) return;
+    if (!container || !iframe) return;
 
     function fireResize() {
       try {
@@ -354,28 +363,51 @@ function FullscreenIframe({ src, title }: { src: string; title: string }) {
       }
     }
 
-    // requestAnimationFrameは背面タブ/非表示中は呼ばれないことがある(ブラウザのレンダリング
-    // 抑制)ため、layoutの確定待ちにはより確実なsetTimeoutを使う。1回目でCSSクラス変更後の
-    // resizeイベントをまず発火させ、2回目でiframe自体の幅を1px分だけ変えて実際にボックス
-    // サイズを変化させることで、resizeイベントの購読有無によらずブラウザ自身にも
-    // 再レイアウトさせる。
-    const timers: number[] = [];
-    timers.push(
+    function nudgeOnce() {
+      fireResize();
+      if (!iframe) return; // TSの型上、閉じ込めた変数はクロージャ境界を越えてnarrowingされないため再チェック
+      const originalWidth = iframe.style.width;
+      iframe.style.width = "calc(100% - 1px)";
       window.setTimeout(() => {
+        if (!iframe) return;
+        iframe.style.width = originalWidth;
         fireResize();
-        const originalWidth = iframe.style.width;
-        iframe.style.width = "calc(100% - 1px)";
-        timers.push(
-          window.setTimeout(() => {
-            iframe.style.width = originalWidth;
-            fireResize();
-          }, 60),
-        );
-      }, 60),
-    );
+      }, 60);
+    }
+
+    const pendingTimers: number[] = [];
+    let debounceTimer = 0;
+    function scheduleNudge() {
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        nudgeOnce();
+        // iOS Safariのアドレスバー収縮アニメーション等でレイアウトが遅れて確定する場合に
+        // 備え、少し間を空けて念のため再確認する。
+        pendingTimers.push(window.setTimeout(nudgeOnce, 400));
+        pendingTimers.push(window.setTimeout(nudgeOnce, 1000));
+      }, 60);
+    }
+
+    // トリガー1: 全画面のON/OFF切り替え(このeffectのdeps)による即時発火
+    scheduleNudge();
+
+    // トリガー2: コンテナの実ボックスサイズ変化(原因を問わない)
+    let resizeObserver: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(scheduleNudge);
+      resizeObserver.observe(container);
+    }
+
+    // トリガー3: 端末の回転・ブラウザUIの変化そのもの
+    window.addEventListener("resize", scheduleNudge);
+    window.addEventListener("orientationchange", scheduleNudge);
 
     return () => {
-      timers.forEach((id) => window.clearTimeout(id));
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleNudge);
+      window.removeEventListener("orientationchange", scheduleNudge);
+      window.clearTimeout(debounceTimer);
+      pendingTimers.forEach((id) => window.clearTimeout(id));
     };
   }, [isFullscreen, isFallback]);
 
