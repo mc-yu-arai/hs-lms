@@ -329,8 +329,55 @@ function LearnWizLesson({ lesson }: { lesson: LessonSummary }) {
 // いずれでも「全画面ボタンを押すと画面いっぱいに表示される」という見た目の挙動を揃えている。
 function FullscreenIframe({ src, title }: { src: string; title: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
+
+  // 全画面のON/OFF切り替え時、iframe内のLearnWiz/SCORMコンテンツ側に自身のレイアウト再計算
+  // (スケーリング処理)を促す。「全画面を解除して再度全画面にすると表示が崩れて小さくなるが、
+  // 端末を回転させると直る」という報告があり、回転時は実際の画面サイズが変わってresizeイベントが
+  // 飛ぶのに対し、全画面のON/OFFは(特にフォールバック側で)祖先要素のCSSクラスを変更しているだけで、
+  // iframeの中身(その`contentWindow`)には resize イベントが届いていないことが原因と考えられる。
+  // ここでは(1)contentWindowへ明示的にresizeイベントを発火させることに加え、(2)iframe自体の幅を
+  // 1px分だけ一時的に変えて実際にボックスサイズを変化させ、ブラウザ自身にも再レイアウトさせることで、
+  // resizeイベントの購読有無によらずスケーリングが再計算されるようにしている
+  // (iOS Safariでは祖先要素のCSSクラス変更だけではiframe内部へresizeが伝播しないことがある既知の挙動)。
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    function fireResize() {
+      try {
+        iframe?.contentWindow?.dispatchEvent(new Event("resize"));
+      } catch {
+        // contentWindowに触れない(将来クロスオリジン化される等)場合は諦める
+      }
+    }
+
+    // requestAnimationFrameは背面タブ/非表示中は呼ばれないことがある(ブラウザのレンダリング
+    // 抑制)ため、layoutの確定待ちにはより確実なsetTimeoutを使う。1回目でCSSクラス変更後の
+    // resizeイベントをまず発火させ、2回目でiframe自体の幅を1px分だけ変えて実際にボックス
+    // サイズを変化させることで、resizeイベントの購読有無によらずブラウザ自身にも
+    // 再レイアウトさせる。
+    const timers: number[] = [];
+    timers.push(
+      window.setTimeout(() => {
+        fireResize();
+        const originalWidth = iframe.style.width;
+        iframe.style.width = "calc(100% - 1px)";
+        timers.push(
+          window.setTimeout(() => {
+            iframe.style.width = originalWidth;
+            fireResize();
+          }, 60),
+        );
+      }, 60),
+    );
+
+    return () => {
+      timers.forEach((id) => window.clearTimeout(id));
+    };
+  }, [isFullscreen, isFallback]);
 
   // ネイティブFullscreen APIが使われている場合、ブラウザ側のESCキー処理や
   // ブラウザUIの「全画面終了」ボタンで抜けられた時にもstateを追随させる。
@@ -408,7 +455,12 @@ function FullscreenIframe({ src, title }: { src: string; title: string }) {
           : "relative h-[75vh] w-full max-w-full"
       }
     >
-      <iframe src={src} title={title} className="h-full w-full rounded-lg border border-gray-200 bg-white" />
+      <iframe
+        ref={iframeRef}
+        src={src}
+        title={title}
+        className="h-full w-full rounded-lg border border-gray-200 bg-white"
+      />
       <button
         type="button"
         onClick={toggleFullscreen}
