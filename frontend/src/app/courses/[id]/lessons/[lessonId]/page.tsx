@@ -317,12 +317,136 @@ function LearnWizLesson({ lesson }: { lesson: LessonSummary }) {
   if (!lesson.contentUrl) {
     return <p className="text-sm text-gray-500">コンテンツが設定されていません。</p>;
   }
+  return <FullscreenIframe src={lessonContentProxyUrl(lesson.contentUrl)} title={lesson.title} />;
+}
+
+// ブラウザ標準のFullscreen APIとCSSによる疑似フルスクリーンを両方サポートする、
+// LearnWiz/SCORM共通の全画面表示コンポーネント。
+// iPhoneのSafariは<video>以外の要素に対するFullscreen API(requestFullscreen)を
+// 現時点でもサポートしておらず(webkitプレフィックス版も同様)、呼び出しても無視されるか
+// 例外になる既知の制約がある。そのためAPIが無い/失敗した場合は、コンテナをposition:fixedで
+// ビューポート全体に広げる疑似フルスクリーンに自動フォールバックし、PC/タブレット/スマホの
+// いずれでも「全画面ボタンを押すと画面いっぱいに表示される」という見た目の挙動を揃えている。
+function FullscreenIframe({ src, title }: { src: string; title: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFallback, setIsFallback] = useState(false);
+
+  // ネイティブFullscreen APIが使われている場合、ブラウザ側のESCキー処理や
+  // ブラウザUIの「全画面終了」ボタンで抜けられた時にもstateを追随させる。
+  useEffect(() => {
+    function handleFullscreenChange() {
+      if (isFallback) return; // 疑似フルスクリーン中はこのイベントの対象外
+      const fsElement =
+        document.fullscreenElement ??
+        (document as unknown as { webkitFullscreenElement?: Element | null }).webkitFullscreenElement;
+      setIsFullscreen(fsElement === containerRef.current);
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, [isFallback]);
+
+  // 疑似フルスクリーン中は背後のページがスクロールしないようにし、ESCキーでも解除できるようにする
+  // (ネイティブFullscreen APIの場合はブラウザが標準でESC解除・背後スクロール禁止を行うため不要)。
+  useEffect(() => {
+    if (!isFallback || !isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFallback, isFullscreen]);
+
+  async function toggleFullscreen() {
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (isFullscreen) {
+      if (isFallback) {
+        setIsFullscreen(false);
+      } else {
+        const exitFs =
+          document.exitFullscreen?.bind(document) ??
+          (document as unknown as { webkitExitFullscreen?: () => void }).webkitExitFullscreen?.bind(document);
+        exitFs?.();
+      }
+      return;
+    }
+
+    const requestFs =
+      el.requestFullscreen?.bind(el) ??
+      (el as unknown as { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen?.bind(el);
+    if (requestFs) {
+      try {
+        await requestFs();
+        setIsFallback(false);
+        setIsFullscreen(true);
+        return;
+      } catch {
+        // iPhone Safari等、呼び出し自体はできてもAPIが機能しないケースへのフォールバック
+      }
+    }
+    setIsFallback(true);
+    setIsFullscreen(true);
+  }
+
   return (
-    <iframe
-      src={lessonContentProxyUrl(lesson.contentUrl)}
-      title={lesson.title}
-      className="h-[75vh] w-full max-w-full rounded-lg border border-gray-200"
-    />
+    <div
+      ref={containerRef}
+      className={
+        isFullscreen && isFallback
+          ? "fixed inset-0 z-50 h-[100dvh] w-screen bg-black"
+          : "relative h-[75vh] w-full max-w-full"
+      }
+    >
+      <iframe src={src} title={title} className="h-full w-full rounded-lg border border-gray-200 bg-white" />
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        aria-label={isFullscreen ? "全画面表示を終了" : "全画面表示"}
+        className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-black/75"
+      >
+        {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
+        <span className="hidden sm:inline">{isFullscreen ? "全画面終了" : "全画面"}</span>
+      </button>
+    </div>
+  );
+}
+
+function EnterFullscreenIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M7 3H3v4M13 3h4v4M7 17H3v-4M13 17h4v-4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExitFullscreenIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M3 7h4V3M17 7h-4V3M3 13h4v4M17 13h-4v4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -403,11 +527,5 @@ function ScormLesson({
     return <p className="text-sm text-gray-500">読み込み中...</p>;
   }
 
-  return (
-    <iframe
-      src={lessonContentProxyUrl(lesson.contentUrl)}
-      title={lesson.title}
-      className="h-[75vh] w-full max-w-full rounded-lg border border-gray-200"
-    />
-  );
+  return <FullscreenIframe src={lessonContentProxyUrl(lesson.contentUrl)} title={lesson.title} />;
 }
