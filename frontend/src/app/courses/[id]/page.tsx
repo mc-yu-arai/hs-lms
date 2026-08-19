@@ -31,6 +31,7 @@ export default function CourseDetailPage() {
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [hasQuiz, setHasQuiz] = useState(false);
+  const [chapterQuizIds, setChapterQuizIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -58,6 +59,19 @@ export default function CourseDetailPage() {
     authFetch<QuizDetail>(`/v1/courses/${courseId}/quiz`)
       .then(() => setHasQuiz(true))
       .catch(() => setHasQuiz(false));
+  }, [user, authFetch, courseId, detail]);
+
+  // 章ごとの小テストの有無を検出する(hasQuizと同じパターン。存在しない章は404が返る)
+  useEffect(() => {
+    if (!user || !detail) return;
+    if (!detail.enrolled && user.role === "learner") return;
+    Promise.all(
+      detail.chapters.map((chapter) =>
+        authFetch<QuizDetail>(`/v1/courses/${courseId}/chapters/${chapter.id}/quiz`)
+          .then(() => chapter.id)
+          .catch(() => null),
+      ),
+    ).then((ids) => setChapterQuizIds(new Set(ids.filter((id): id is string => id !== null))));
   }, [user, authFetch, courseId, detail]);
 
   async function handleEnroll() {
@@ -189,45 +203,66 @@ export default function CourseDetailPage() {
         <section className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
           <h3 className="mb-4 text-base font-semibold text-gray-900">カリキュラム</h3>
           <div className="space-y-6">
-            {detail.chapters.map((chapter) => (
-              <div key={chapter.id}>
-                <h4 className="mb-2 text-sm font-semibold text-gray-700">{chapter.title}</h4>
-                <ul className="space-y-1">
-                  {chapter.lessons.map((lesson) => {
-                    const lessonProgress = lessonProgressById.get(lesson.id);
-                    const isCompleted = lessonProgress?.isCompleted ?? false;
-                    const content = (
-                      <>
-                        <span
-                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs ${
-                            isCompleted ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"
-                          }`}
-                        >
-                          {isCompleted ? "✓" : ""}
-                        </span>
-                        <span className="flex-1 text-sm text-gray-800">{lesson.title}</span>
-                        <span className="text-xs text-gray-400">{CONTENT_TYPE_LABEL[lesson.contentType] ?? lesson.contentType}</span>
-                      </>
-                    );
+            {detail.chapters.map((chapter) => {
+              const allChapterLessonsCompleted =
+                chapter.lessons.length > 0 && chapter.lessons.every((l) => lessonProgressById.get(l.id)?.isCompleted);
+              const showChapterQuizButton = detail.enrolled && chapterQuizIds.has(chapter.id) && allChapterLessonsCompleted;
 
-                    return (
-                      <li key={lesson.id}>
-                        {detail.enrolled ? (
-                          <a
-                            href={`/courses/${courseId}/lessons/${lesson.id}`}
-                            className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-gray-50"
+              return (
+                <div key={chapter.id}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <h4 className="text-sm font-semibold text-gray-700">{chapter.title}</h4>
+                    {chapter.isLocked && (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                        🔒 前の章の小テストに合格すると解放されます
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-1">
+                    {chapter.lessons.map((lesson) => {
+                      const lessonProgress = lessonProgressById.get(lesson.id);
+                      const isCompleted = lessonProgress?.isCompleted ?? false;
+                      const content = (
+                        <>
+                          <span
+                            className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-xs ${
+                              isCompleted ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"
+                            }`}
                           >
-                            {content}
-                          </a>
-                        ) : (
-                          <div className="flex items-center gap-3 rounded-md px-2 py-2 text-gray-400">{content}</div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+                            {chapter.isLocked ? "🔒" : isCompleted ? "✓" : ""}
+                          </span>
+                          <span className="flex-1 text-sm text-gray-800">{lesson.title}</span>
+                          <span className="text-xs text-gray-400">{CONTENT_TYPE_LABEL[lesson.contentType] ?? lesson.contentType}</span>
+                        </>
+                      );
+
+                      return (
+                        <li key={lesson.id}>
+                          {detail.enrolled && !chapter.isLocked ? (
+                            <a
+                              href={`/courses/${courseId}/lessons/${lesson.id}`}
+                              className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-gray-50"
+                            >
+                              {content}
+                            </a>
+                          ) : (
+                            <div className="flex items-center gap-3 rounded-md px-2 py-2 text-gray-400">{content}</div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {showChapterQuizButton && (
+                    <a
+                      href={`/courses/${courseId}/chapters/${chapter.id}/quiz`}
+                      className="mt-2 inline-block rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                    >
+                      章テストを受ける
+                    </a>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>

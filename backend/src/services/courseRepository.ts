@@ -16,6 +16,7 @@ export interface Course {
   is_published: boolean;
   is_mandatory: boolean;
   is_limited: boolean;
+  has_final_quiz: boolean;
   thumbnail_url: string | null;
   prerequisite_course_id: string | null;
   created_at: string;
@@ -149,6 +150,7 @@ export interface CourseInput {
   isPublished?: boolean;
   isMandatory?: boolean;
   isLimited?: boolean;
+  hasFinalQuiz?: boolean;
   thumbnailUrl?: string | null;
   prerequisiteCourseId?: string | null;
   chapters?: ChapterInput[];
@@ -165,6 +167,7 @@ function toCourseRow(input: CourseInput) {
     is_published: input.isPublished ?? false,
     is_mandatory: input.isMandatory ?? false,
     is_limited: input.isLimited ?? false,
+    has_final_quiz: input.hasFinalQuiz ?? true,
     thumbnail_url: input.thumbnailUrl ?? null,
     prerequisite_course_id: input.prerequisiteCourseId ?? null,
   };
@@ -230,6 +233,7 @@ export async function updateCourse(id: string, input: Partial<CourseInput>): Pro
   if (input.isPublished !== undefined) sparsePatch.is_published = patch.is_published;
   if (input.isMandatory !== undefined) sparsePatch.is_mandatory = patch.is_mandatory;
   if (input.isLimited !== undefined) sparsePatch.is_limited = patch.is_limited;
+  if (input.hasFinalQuiz !== undefined) sparsePatch.has_final_quiz = patch.has_final_quiz;
   if (input.thumbnailUrl !== undefined) sparsePatch.thumbnail_url = patch.thumbnail_url;
   if (input.prerequisiteCourseId !== undefined) sparsePatch.prerequisite_course_id = patch.prerequisite_course_id;
 

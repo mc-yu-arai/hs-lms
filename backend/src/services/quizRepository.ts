@@ -1,10 +1,13 @@
 import { supabaseAdmin } from "../lib/supabase";
 
 export type QuestionType = "single_choice" | "multiple_choice";
+export type QuizType = "course" | "chapter";
 
 export interface Quiz {
   id: string;
   course_id: string;
+  chapter_id: string | null;
+  quiz_type: QuizType;
   title: string;
   description: string | null;
   created_at: string;
@@ -40,8 +43,25 @@ export interface QuizAttempt {
   submitted_at: string;
 }
 
+// コースの「コース修了テスト」(quiz_type='course')を取得する。章テストはchapter_idで別途取得する
 export async function getQuizByCourseId(courseId: string): Promise<Quiz | null> {
-  const { data, error } = await supabaseAdmin.from("quizzes").select("*").eq("course_id", courseId).maybeSingle();
+  const { data, error } = await supabaseAdmin
+    .from("quizzes")
+    .select("*")
+    .eq("course_id", courseId)
+    .eq("quiz_type", "course")
+    .maybeSingle();
+  if (error) throw error;
+  return data as Quiz | null;
+}
+
+export async function getQuizByChapterId(chapterId: string): Promise<Quiz | null> {
+  const { data, error } = await supabaseAdmin
+    .from("quizzes")
+    .select("*")
+    .eq("chapter_id", chapterId)
+    .eq("quiz_type", "chapter")
+    .maybeSingle();
   if (error) throw error;
   return data as Quiz | null;
 }
@@ -84,13 +104,14 @@ export interface QuizInput {
   questions: QuestionInput[];
 }
 
-// コース作成時のreplaceCurriculumと同様、questionsを全置換する(既存のquiz_attempts/quiz_answersは
-// questions/choicesのON DELETE CASCADEで一緒に消える点に注意。既存受験履歴を残したまま設問だけ
-// 差し替えたい場合は将来的に個別更新APIが必要)
-export async function createOrReplaceQuiz(courseId: string, input: QuizInput): Promise<Quiz> {
-  const existing = await getQuizByCourseId(courseId);
-
-  const quizRow = { course_id: courseId, title: input.title, description: input.description ?? null };
+// questionsを全置換する(既存のquiz_attempts/quiz_answersはquestions/choicesのON DELETE CASCADEで
+// 一緒に消える点に注意。既存受験履歴を残したまま設問だけ差し替えたい場合は将来的に個別更新APIが必要)。
+// コース修了テスト・章テストの両方から呼ばれる共通実装(existingQuizとquizRowの組み立てだけが呼び出し元で異なる)。
+async function createOrReplaceQuizRow(
+  existing: Quiz | null,
+  quizRow: { course_id: string; chapter_id: string | null; quiz_type: QuizType; title: string; description: string | null },
+  questions: QuestionInput[],
+): Promise<Quiz> {
   const { data: quiz, error: quizError } = existing
     ? await supabaseAdmin.from("quizzes").update(quizRow).eq("id", existing.id).select("*").single()
     : await supabaseAdmin.from("quizzes").insert(quizRow).select("*").single();
@@ -99,8 +120,8 @@ export async function createOrReplaceQuiz(courseId: string, input: QuizInput): P
   const { error: deleteError } = await supabaseAdmin.from("questions").delete().eq("quiz_id", quiz.id);
   if (deleteError) throw deleteError;
 
-  for (let i = 0; i < input.questions.length; i++) {
-    const question = input.questions[i];
+  for (let i = 0; i < questions.length; i++) {
+    const question = questions[i];
     const { data: questionRow, error: questionError } = await supabaseAdmin
       .from("questions")
       .insert({
@@ -124,6 +145,24 @@ export async function createOrReplaceQuiz(courseId: string, input: QuizInput): P
   }
 
   return quiz as Quiz;
+}
+
+export async function createOrReplaceCourseQuiz(courseId: string, input: QuizInput): Promise<Quiz> {
+  const existing = await getQuizByCourseId(courseId);
+  return createOrReplaceQuizRow(
+    existing,
+    { course_id: courseId, chapter_id: null, quiz_type: "course", title: input.title, description: input.description ?? null },
+    input.questions,
+  );
+}
+
+export async function createOrReplaceChapterQuiz(courseId: string, chapterId: string, input: QuizInput): Promise<Quiz> {
+  const existing = await getQuizByChapterId(chapterId);
+  return createOrReplaceQuizRow(
+    existing,
+    { course_id: courseId, chapter_id: chapterId, quiz_type: "chapter", title: input.title, description: input.description ?? null },
+    input.questions,
+  );
 }
 
 export interface QuizAnswerInput {
@@ -210,7 +249,7 @@ export async function ensureQuizForCourse(courseId: string, defaultTitle: string
 
   const { data, error } = await supabaseAdmin
     .from("quizzes")
-    .insert({ course_id: courseId, title: defaultTitle, description: null })
+    .insert({ course_id: courseId, chapter_id: null, quiz_type: "course", title: defaultTitle, description: null })
     .select("*")
     .single();
   if (error) throw error;

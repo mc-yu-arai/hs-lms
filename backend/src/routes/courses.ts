@@ -15,7 +15,6 @@ import {
   updateCourse,
   deleteCourse,
   countEnrollments,
-  countLessonsForCourse,
   findEnrollment,
   createEnrollment,
   getLessonProgressList,
@@ -24,13 +23,16 @@ import {
   upsertLessonProgress,
   recalculateEnrollmentProgress,
   getAssignedCourseIdsForUserGroups,
+  type Course,
   type CourseLevel,
   type ChapterWithLessons,
 } from "../services/courseRepository";
 import {
   getQuizByCourseId,
+  getQuizByChapterId,
   getQuestionsWithChoices,
-  createOrReplaceQuiz,
+  createOrReplaceCourseQuiz,
+  createOrReplaceChapterQuiz,
   submitQuizAttempt,
   listAttemptsForEnrollment,
   hasPassedQuiz,
@@ -63,6 +65,7 @@ function serializeCourse(course: Awaited<ReturnType<typeof getCourseById>>) {
     isPublished: course.is_published,
     isMandatory: course.is_mandatory,
     isLimited: course.is_limited,
+    hasFinalQuiz: course.has_final_quiz,
     thumbnailUrl: course.thumbnail_url,
     prerequisiteCourseId: course.prerequisite_course_id,
     createdAt: course.created_at,
@@ -70,23 +73,69 @@ function serializeCourse(course: Awaited<ReturnType<typeof getCourseById>>) {
   };
 }
 
-// 未受講者にはコンテンツ本体(URL/本文)を隠し、カリキュラムの構成だけを見せる
-function serializeChapters(chapters: ChapterWithLessons[], includeContent: boolean) {
-  return chapters.map((chapter) => ({
-    id: chapter.id,
-    title: chapter.title,
-    displayOrder: chapter.display_order,
-    lessons: chapter.lessons.map((lesson) => ({
-      id: lesson.id,
-      title: lesson.title,
-      contentType: lesson.content_type,
-      durationSeconds: lesson.duration_seconds,
-      displayOrder: lesson.display_order,
-      contentUrl: includeContent ? lesson.content_url : null,
-      contentBody: includeContent ? lesson.content_body : null,
-      scormVersion: lesson.scorm_version,
-    })),
-  }));
+// 未受講者にはコンテンツ本体(URL/本文)を隠し、カリキュラムの構成だけを見せる。
+// ロック中の章(章ロック機能。isLockedがtrueの章)も同様に本体を隠す(限定公開コースと同じ「対象外には
+// 中身を見せない」パターン)。locksが渡されない場合(admin/未受講者)は全章アンロック扱いにする
+function serializeChapters(chapters: ChapterWithLessons[], includeContent: boolean, locks?: Map<string, boolean>) {
+  return chapters.map((chapter) => {
+    const isLocked = locks?.get(chapter.id) ?? false;
+    const includeChapterContent = includeContent && !isLocked;
+    return {
+      id: chapter.id,
+      title: chapter.title,
+      displayOrder: chapter.display_order,
+      isLocked,
+      lessons: chapter.lessons.map((lesson) => ({
+        id: lesson.id,
+        title: lesson.title,
+        contentType: lesson.content_type,
+        durationSeconds: lesson.duration_seconds,
+        displayOrder: lesson.display_order,
+        contentUrl: includeChapterContent ? lesson.content_url : null,
+        contentBody: includeChapterContent ? lesson.content_body : null,
+        scormVersion: lesson.scorm_version,
+      })),
+    };
+  });
+}
+
+// 章ロックの判定: 章N+1がロックされる ⟺ 章Nに小テストが設定されていて、かつ合格履歴が無い
+// (または章N自体が既にロック中で連鎖している場合)。章に小テストが無ければ次章をロックしない。
+// 最初の章は常にアンロック。enrollmentIdが無い(admin/未受講者)場合は全章アンロックを返す。
+async function computeChapterLocks(chapters: ChapterWithLessons[], enrollmentId: string | null): Promise<Map<string, boolean>> {
+  const locks = new Map<string, boolean>();
+  let locked = false;
+  for (const chapter of chapters) {
+    locks.set(chapter.id, enrollmentId ? locked : false);
+    if (!enrollmentId) continue;
+    const chapterQuiz = await getQuizByChapterId(chapter.id);
+    const passed = chapterQuiz ? await hasPassedQuiz(enrollmentId, chapterQuiz.id) : true;
+    locked = locked || !passed;
+  }
+  return locks;
+}
+
+// 章内の全レッスンが完了しているか(章テストの受験前提条件チェック用)
+function isChapterLessonsComplete(chapter: ChapterWithLessons, progressList: { lesson_id: string; is_completed: boolean }[]): boolean {
+  if (chapter.lessons.length === 0) return true;
+  return chapter.lessons.every((lesson) => progressList.some((p) => p.lesson_id === lesson.id && p.is_completed));
+}
+
+// コース完了条件のうち「テスト系」の要件が全て満たされているか。
+// 各章の小テスト(あれば全て)の合格 + コース修了テスト(has_final_quiz=trueの場合のみ必須。
+// 未作成なら従来通り要件を満たしたことにする既存の後方互換動作を維持)
+async function computeQuizRequirementsMet(course: Course, chapters: ChapterWithLessons[], enrollmentId: string): Promise<boolean> {
+  for (const chapter of chapters) {
+    const chapterQuiz = await getQuizByChapterId(chapter.id);
+    if (chapterQuiz && !(await hasPassedQuiz(enrollmentId, chapterQuiz.id))) return false;
+  }
+  // DB上はNOT NULL DEFAULT trueのため実運用では必ずboolean値が入るが、テスト用フェイクDBは
+  // カラムのデフォルト値を再現しないため、undefinedの場合も「デフォルトのtrue」として扱う
+  if (course.has_final_quiz !== false) {
+    const finalQuiz = await getQuizByCourseId(course.id);
+    if (finalQuiz && !(await hasPassedQuiz(enrollmentId, finalQuiz.id))) return false;
+  }
+  return true;
 }
 
 coursesRouter.get(
@@ -139,10 +188,12 @@ coursesRouter.get(
     const includeContent = isAdmin(req.appUser!.role) || enrollment !== null;
 
     const chapters = await getChaptersWithLessons(course.id);
+    // adminは章ロックの対象外(常に全章アンロックとして扱う)
+    const locks = isAdmin(req.appUser!.role) ? undefined : await computeChapterLocks(chapters, enrollment?.id ?? null);
 
     return res.status(200).json({
       course: serializeCourse(course),
-      chapters: serializeChapters(chapters, includeContent),
+      chapters: serializeChapters(chapters, includeContent, locks),
       enrolled: enrollment !== null,
     });
   }),
@@ -174,6 +225,7 @@ const courseCreateSchema = z.object({
   isPublished: z.boolean().optional(),
   isMandatory: z.boolean().optional(),
   isLimited: z.boolean().optional(),
+  hasFinalQuiz: z.boolean().optional(),
   thumbnailUrl: z.string().url().nullable().optional(),
   prerequisiteCourseId: z.string().uuid().nullable().optional(),
   chapters: z.array(chapterSchema).default([]),
@@ -349,14 +401,21 @@ coursesRouter.put(
       throw new HttpError(404, "lesson_not_found", "レッスンが見つかりません");
     }
 
+    const chapters = await getChaptersWithLessons(course.id);
+    if (!isAdmin(req.appUser!.role)) {
+      const locks = await computeChapterLocks(chapters, enrollment.id);
+      if (locks.get(chapter.id)) {
+        throw new HttpError(403, "chapter_locked", "前の章の小テストに合格していないため、このレッスンにはまだアクセスできません");
+      }
+    }
+
     const wasCompleted = enrollment.status === "completed";
 
     const input = lessonProgressSchema.parse(req.body);
     await upsertLessonProgress(enrollment.id, lesson.id, lesson.content_type, input);
 
-    const totalLessonCount = await countLessonsForCourse(course.id);
-    const quiz = await getQuizByCourseId(course.id);
-    const quizRequirementMet = !quiz || (await hasPassedQuiz(enrollment.id, quiz.id));
+    const totalLessonCount = chapters.reduce((sum, c) => sum + c.lessons.length, 0);
+    const quizRequirementMet = await computeQuizRequirementsMet(course, chapters, enrollment.id);
     const updatedEnrollment = await recalculateEnrollmentProgress(
       enrollment.id,
       totalLessonCount,
@@ -457,7 +516,7 @@ coursesRouter.post(
     if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
 
     const input = quizInputSchema.parse(req.body);
-    const quiz = await createOrReplaceQuiz(course.id, input);
+    const quiz = await createOrReplaceCourseQuiz(course.id, input);
     const questions = await getQuestionsWithChoices(quiz.id);
 
     return res.status(200).json({
@@ -494,8 +553,9 @@ coursesRouter.post(
     const { answers } = quizAttemptSchema.parse(req.body);
     const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, course.pass_score);
 
-    const totalLessonCount = await countLessonsForCourse(course.id);
-    const quizRequirementMet = await hasPassedQuiz(enrollment.id, quiz.id);
+    const chapters = await getChaptersWithLessons(course.id);
+    const totalLessonCount = chapters.reduce((sum, c) => sum + c.lessons.length, 0);
+    const quizRequirementMet = await computeQuizRequirementsMet(course, chapters, enrollment.id);
     const updatedEnrollment = await recalculateEnrollmentProgress(enrollment.id, totalLessonCount, quizRequirementMet, 0);
 
     if (!wasCompleted && updatedEnrollment.status === "completed") {
@@ -527,6 +587,133 @@ coursesRouter.get(
 
     const quiz = await getQuizByCourseId(course.id);
     if (!quiz) throw new HttpError(404, "quiz_not_found", "このコースにテストは設定されていません");
+
+    const attempts = await listAttemptsForEnrollment(enrollment.id, quiz.id);
+
+    return res.status(200).json({
+      attempts: attempts.map((a) => ({ id: a.id, score: a.score, isPassed: a.is_passed, submittedAt: a.submitted_at })),
+    });
+  }),
+);
+
+// courseIdに属するchapterIdかどうかを検証する共通ヘルパー(章テスト系エンドポイントで共通)
+async function getValidChapter(courseId: string, chapterId: string) {
+  const chapter = await getChapterById(chapterId);
+  if (!chapter || chapter.course_id !== courseId) {
+    throw new HttpError(404, "chapter_not_found", "章が見つかりません");
+  }
+  return chapter;
+}
+
+coursesRouter.get(
+  "/:id/chapters/:chapterId/quiz",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    const quiz = await getQuizByChapterId(req.params.chapterId);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "この章に小テストは設定されていません");
+
+    const admin = isAdmin(req.appUser!.role);
+    if (!admin) {
+      const enrollment = await findEnrollment(req.appUser!.id, course.id);
+      if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+    }
+
+    const questions = await getQuestionsWithChoices(quiz.id);
+
+    return res.status(200).json({
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      questions: serializeQuestions(questions, admin),
+    });
+  }),
+);
+
+coursesRouter.post(
+  "/:id/chapters/:chapterId/quiz",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    const input = quizInputSchema.parse(req.body);
+    const quiz = await createOrReplaceChapterQuiz(course.id, req.params.chapterId, input);
+    const questions = await getQuestionsWithChoices(quiz.id);
+
+    return res.status(200).json({
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      questions: serializeQuestions(questions, true),
+    });
+  }),
+);
+
+coursesRouter.post(
+  "/:id/chapters/:chapterId/quiz/attempts",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    const chapter = await getValidChapter(course.id, req.params.chapterId);
+
+    const enrollment = await findEnrollment(req.appUser!.id, course.id);
+    if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+
+    const quiz = await getQuizByChapterId(chapter.id);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "この章に小テストは設定されていません");
+
+    // 「章の全レッスン完了後に任意のタイミングで受ける」という確定パラメータのサーバー側チェック。
+    // 章がロックされている場合、そもそもこの章のレッスン進捗を記録できない(PUT .../progressが403を返す)ため
+    // 必然的にここでも未完了判定になり、結果的に章ロックの防御としても機能する
+    const chaptersWithLessons = await getChaptersWithLessons(course.id);
+    const targetChapter = chaptersWithLessons.find((c) => c.id === chapter.id)!;
+    const progressList = await getLessonProgressList(enrollment.id);
+    if (!isChapterLessonsComplete(targetChapter, progressList)) {
+      throw new HttpError(409, "chapter_lessons_incomplete", "この章の全レッスンを完了してから受験してください");
+    }
+
+    const wasCompleted = enrollment.status === "completed";
+
+    const { answers } = quizAttemptSchema.parse(req.body);
+    const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, course.pass_score);
+
+    const totalLessonCount = chaptersWithLessons.reduce((sum, c) => sum + c.lessons.length, 0);
+    const quizRequirementMet = await computeQuizRequirementsMet(course, chaptersWithLessons, enrollment.id);
+    const updatedEnrollment = await recalculateEnrollmentProgress(enrollment.id, totalLessonCount, quizRequirementMet, 0);
+
+    if (!wasCompleted && updatedEnrollment.status === "completed") {
+      await notifyCourseCompleted(req.appUser!.id, course.id);
+    }
+
+    return res.status(201).json({
+      attempt: { id: attempt.id, score: attempt.score, isPassed: attempt.is_passed, submittedAt: attempt.submitted_at },
+      questionResults,
+      enrollment: {
+        id: updatedEnrollment.id,
+        status: updatedEnrollment.status,
+        progressRate: updatedEnrollment.progress_rate,
+        completedAt: updatedEnrollment.completed_at,
+      },
+    });
+  }),
+);
+
+coursesRouter.get(
+  "/:id/chapters/:chapterId/quiz/attempts",
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    const enrollment = await findEnrollment(req.appUser!.id, course.id);
+    if (!enrollment) throw new HttpError(404, "not_enrolled", "このコースを受講していません");
+
+    const quiz = await getQuizByChapterId(req.params.chapterId);
+    if (!quiz) throw new HttpError(404, "quiz_not_found", "この章に小テストは設定されていません");
 
     const attempts = await listAttemptsForEnrollment(enrollment.id, quiz.id);
 

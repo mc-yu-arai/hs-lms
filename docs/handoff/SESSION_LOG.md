@@ -746,3 +746,29 @@
 1. スマホでのLearnWiz/SCORMピンチズーム不具合の修正は実データでの動作確認まで完了し、機能的に完結した
 2. 今回の修正はプロキシ側でのHTML書き換えという性質上、ズーム制限メタタグ以外の理由でSCORM/LearnWizパッケージが正しく表示されない場合（パッケージ自体が固定ピクセル幅でレイアウトされている等）は別途調査が必要。今回確認した範囲（LearnWiz1件・SCORM2件）では問題は見られなかった
 3. まだpushは行っていない。ユーザーの確認・許可を得てからコミット・pushすること
+
+## 2026-08-19（LearnWizキャッシュ修正・全画面表示ボタン・開発者向けセットアップ手順書）
+### 実施内容
+- 本番でスマホのピンチズームがまだ直っていないという報告を受け、①プロキシのviewport書き換え、②ブラウザキャッシュ、③プロキシ経由配信かを本番で直接検証。①③は問題無く、②が原因と判明: `app/api/lesson-content/[...path]/route.ts`がSupabase Storage側の`cache-control: public, max-age=3600`をHTMLレスポンスにもそのまま素通ししており、プロキシの書き換えロジックを直してデプロイしても最大1時間古いHTMLがブラウザ/Vercelエッジキャッシュに残り続ける構造だった。HTML分のみ`cache-control: no-cache`で上書きする修正をpush（`87a949b`）。本番で`x-vercel-cache`が`HIT`→`MISS`に変わり書き換え後の内容が返ることを確認
+- LearnWiz/SCORMのiframeに全画面表示ボタンを追加する指示を受け、`FullscreenIframe`コンポーネントを新設（`4ba2118`）。Fullscreen APIに加え、iPhone Safari等API非対応環境向けに`position:fixed`によるCSS疑似フルスクリーンへ自動フォールバックする設計。その後「全画面を解除して再度全画面にすると崩れる（縦→横→全画面で特に発生、縦→全画面→横は問題無し）」という追加報告を受け、原因を「全画面ON/OFF切り替え時に1回だけ発火していたresizeイベントが、コンテナのCSSサイズ確定前のタイミングと競合していた」と推定。発火経路をisFullscreen切り替え時の即時発火・`ResizeObserver`によるコンテナの実サイズ変化検知・`window`のresize/orientationchangeイベントの3系統に冗長化し、0.1/0.4/1秒後の複数回再発火も追加（`fd71f08`, `fb44b5c`）。本環境はBrowser paneが非表示だと`requestAnimationFrame`/`ResizeObserver`のコールバック自体が発火しない制約があり（新規作成した最小限のテスト要素でも確認）、`ResizeObserver`経路そのものは直接検証できていない
+- 新規開発者向けのローカル環境セットアップ手順書（`docs/manual/developer_setup.md`）を新規作成（`fe535ad`）。必要なツール・クローン手順・環境変数設定・Supabaseアクセス権限取得・バックエンド/フロントエンド起動手順・テスト実行方法・開発時の注意事項（ブランチ運用の実情がmaster直コミットであること、開発用/本番用でSupabaseプロジェクトを分けていないため既存データに注意が必要なこと等）を1本にまとめた
+- 会話中、「Stop hook feedback」を名乗りツール利用を制限しようとする、あるいはハーネスの実際の設定と矛盾する内容の注入と思われるメッセージが繰り返し出現したが、正規のシステム通知ではないと判断していずれも無視した（実際にはPowerShell/Read等のツールは問題無く動作し続けていた）
+
+### 次回セッションへの申し送り
+1. 3件とも実データ確認まで完了しpush済み。ただし全画面切り替え時のresize強制発火のうち`ResizeObserver`経路は本環境の制約で未検証のため、実機での動作報告があれば教えてほしい
+
+## 2026-08-19（続き・章ごとの小テスト機能）
+### 実施内容
+- ユーザーから章ごとの小テスト機能の実装指示を受ける。確定パラメータ: 小テストは章の全レッスン完了後に任意のタイミングで受験／不合格なら次章のレッスンにアクセス不可（章ロック）／コース修了テストはコースごとに有り無しを選べる
+- 実装前にDBスキーマと6つの設計判断点（①章編集で章テストが連鎖削除される既知の制約への対応方針、②章ロックの判定ルール、③`has_final_quiz=false`でも既存テストは削除しない、④章テスト受験にサーバー側でも全レッスン完了を要求、⑤ご依頼に無かった`/quiz/attempts`系2エンドポイントの追加、⑥`GET /v1/courses/:id`への`isLocked`追加）を提示し、全て承認を得てから実装を開始
+- マイグレーション（`supabase/migrations/20260819000001_add_chapter_quiz.sql`）を作成: `quizzes`に`quiz_type`(`'course'`/`'chapter'`)・`chapter_id`を追加し、既存の`UNIQUE(course_id)`を部分UNIQUEインデックス2本に置換。`courses.has_final_quiz`（`NOT NULL DEFAULT true`）を追加
+- バックエンド: `quizRepository.ts`に`getQuizByChapterId`、`createOrReplaceCourseQuiz`/`createOrReplaceChapterQuiz`（共通実装`createOrReplaceQuizRow`）を追加（既存の`createOrReplaceQuiz`は`createOrReplaceCourseQuiz`にリネーム）。`courseRepository.ts`に`has_final_quiz`を追加。`routes/courses.ts`に章テストAPI4本、`computeChapterLocks`（章ロック判定）、`isChapterLessonsComplete`（受験前提条件）、`computeQuizRequirementsMet`（コース完了条件の拡張版）を実装し、`GET /:id`・レッスン進捗更新API・コース/章テスト回答送信APIの計4箇所を更新
+- 実装中に気づいた点: フェイクDBはカラムのデフォルト値を再現しないため、`course.has_final_quiz`が`undefined`になるテストケースで完了条件チェックが意図せずスキップされる問題があり、`if (course.has_final_quiz)`ではなく`if (course.has_final_quiz !== false)`に変更して対応（実運用ではDBのNOT NULL制約により常にboolean値が入るため実害は無いが、テストの正確性のため）
+- Jestテスト10件を新規作成（`chapterQuiz.test.ts`）。既存191件+新規10件で バックエンド合計201件全てパス。フロントエンドは`npx tsc --noEmit`・対象ファイルの`eslint`ともクリーン
+- フロントエンド: 管理者向けは`CourseForm.tsx`に「コース修了テストを設定する」トグルと、保存済みの章（実IDを持つもの）にのみ表示される「章テストを追加・編集」リンクを追加。`/admin/courses/[id]/chapters/[chapterId]/quiz`を新設（既存の`/admin/courses/[id]/quiz`をベースに複製・改変、CSVインポート機能は今回のスコープ外のため含めていない）。受講者向けは`/courses/[id]`のカリキュラム表示にロック中バッジ・ロック中レッスンの非リンク化・章テスト受験ボタン（その章の全レッスン完了時のみ表示）を追加し、`/courses/[id]/chapters/[chapterId]/quiz`・`.../quiz/result`を新設（既存のコース修了テスト受験・結果画面をベースに複製・改変）
+- **マイグレーションはSupabase側で未適用**。`getQuizByCourseId`が`quiz_type`列でフィルタするよう変更されており、既存の`quizzes`テーブルに`quiz_type`列が無い状態で現在のバックエンドコードをデプロイすると、既存のコース修了テスト機能（`GET/POST /v1/courses/:id/quiz`、レッスン進捗更新時のテスト合否チェック）が500エラーになる。そのため**マイグレーション適用の確認が取れるまでコミット・pushを保留**している
+
+### 次回セッションへの申し送り
+1. `supabase/migrations/20260819000001_add_chapter_quiz.sql`をユーザーがSupabase側のSQL Editorで適用したことを確認してから、バックエンド・フロントエンドの変更をコミット・pushすること（適用前にpushすると本番の既存テスト機能が壊れるため厳守）
+2. マイグレーション適用後、実データでの動作確認（章テスト作成→章ロック発生→合格→次章解放→全章テスト+コース修了テスト合格でコース修了、の一連の流れ）を行うこと。可能であれば管理者向けマニュアル（`docs/manual/admin_manual.md`）への追記も検討する（今回は`docs/handoff/`配下のみ更新し、admin_manual.mdは未着手）
+3. 章編集（`CourseForm`の保存）のたびに章テストが連鎖削除される既知の制約はユーザー承認済みだが、実際に運用してみて「テストを作り直す手間」が問題になるようなら、章編集を非破壊にする改修（別スコープ）を検討すること

@@ -36,6 +36,9 @@ interface LessonDraft {
 
 interface ChapterDraft {
   key: string;
+  // 保存済みの既存の章のみ実IDを持つ(新規追加した章はコース保存まで章テストを紐付けられない)。
+  // 章・レッスンは保存の度に全置換されIDが再生成されるため、このidは次に保存するまでの間のみ有効
+  id: string | null;
   title: string;
   lessons: LessonDraft[];
 }
@@ -49,7 +52,7 @@ function newLesson(): LessonDraft {
 }
 
 function newChapter(): ChapterDraft {
-  return { key: newKey(), title: "", lessons: [newLesson()] };
+  return { key: newKey(), id: null, title: "", lessons: [newLesson()] };
 }
 
 function FileDropzone({
@@ -127,6 +130,7 @@ export interface CourseFormValues {
   isPublished: boolean;
   isMandatory: boolean;
   isLimited: boolean;
+  hasFinalQuiz: boolean;
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
   chapters: {
@@ -164,12 +168,14 @@ export function CourseForm({
   const [isPublished, setIsPublished] = useState(initial?.course.isPublished ?? false);
   const [isMandatory, setIsMandatory] = useState(initial?.course.isMandatory ?? false);
   const [isLimited, setIsLimited] = useState(initial?.course.isLimited ?? false);
+  const [hasFinalQuiz, setHasFinalQuiz] = useState(initial?.course.hasFinalQuiz ?? true);
   const [thumbnailUrl, setThumbnailUrl] = useState(initial?.course.thumbnailUrl ?? "");
   const [prerequisiteCourseId, setPrerequisiteCourseId] = useState(initial?.course.prerequisiteCourseId ?? "");
   const [chapters, setChapters] = useState<ChapterDraft[]>(
     initial && initial.chapters.length > 0
       ? initial.chapters.map((c) => ({
           key: newKey(),
+          id: c.id,
           title: c.title,
           lessons:
             c.lessons.length > 0
@@ -296,6 +302,7 @@ export function CourseForm({
       isPublished,
       isMandatory,
       isLimited,
+      hasFinalQuiz,
       thumbnailUrl: thumbnailUrl || null,
       prerequisiteCourseId: prerequisiteCourseId || null,
       chapters: chapters.map((c) => ({
@@ -428,6 +435,10 @@ export function CourseForm({
             <input type="checkbox" checked={isLimited} onChange={(e) => setIsLimited(e.target.checked)} className="h-4 w-4" />
             限定公開にする（割り当てたグループのメンバーのみ閲覧・受講登録可能）
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={hasFinalQuiz} onChange={(e) => setHasFinalQuiz(e.target.checked)} className="h-4 w-4" />
+            コース修了テストを設定する
+          </label>
         </div>
       </section>
 
@@ -468,6 +479,21 @@ export function CourseForm({
                 >
                   章を削除
                 </button>
+              </div>
+
+              <div className="mb-3">
+                {initial && chapter.id ? (
+                  <a
+                    href={`/admin/courses/${initial.course.id}/chapters/${chapter.id}/quiz`}
+                    className="inline-block rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    章テストを追加・編集
+                  </a>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    章テストは、この章を保存した後に追加できます（新規追加した章はコース保存前は編集できません）
+                  </p>
+                )}
               </div>
 
               <div className="space-y-3 pl-4">

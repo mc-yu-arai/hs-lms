@@ -32,6 +32,7 @@ export interface Course {
   isPublished: boolean;
   isMandatory: boolean;
   isLimited: boolean;
+  hasFinalQuiz: boolean;
   thumbnailUrl: string | null;
   prerequisiteCourseId: string | null;
 }
@@ -84,6 +85,7 @@ export interface ChapterSummary {
   id: string;
   title: string;
   displayOrder: number;
+  isLocked: boolean;
   lessons: LessonSummary[];
 }
 
