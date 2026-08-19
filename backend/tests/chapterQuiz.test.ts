@@ -410,3 +410,169 @@ describe("コース修了条件の拡張(全章テスト合格 + コース修了
     expect(progressRes.body.enrollment.status).toBe("completed");
   });
 });
+
+describe("章テストごとの個別合格点(quizzes.pass_score)", () => {
+  it("grades a chapter quiz using its own pass_score, independent of the course's pass_score", async () => {
+    const admin = makeUser({ role: "admin" });
+    // コースのpass_scoreは70だが、章テストは90に個別設定する
+    const course = makeCourseRow({ pass_score: 70 });
+    const chapter = makeChapter(course.id);
+
+    const createRes = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(admin))
+      .send({ ...quizPayload("第1章の小テスト"), passScore: 90 });
+    expect(createRes.body.quiz.passScore).toBe(90);
+
+    const getRes = await request(createApp())
+      .get(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(admin));
+    expect(getRes.body.quiz.passScore).toBe(90);
+
+    const question = createRes.body.questions[0];
+    const correctChoiceId = question.choices.find((c: any) => c.isCorrect).id;
+
+    const learner = makeUser({});
+    enroll(learner, course);
+    const lesson = makeLesson(chapter.id);
+    await request(createApp())
+      .put(`/v1/courses/${course.id}/lessons/${lesson.id}/progress`)
+      .set(authHeader(learner))
+      .send({ completed: true });
+
+    // 全問正解(100点)なので、コースのpass_score(70)でも章テストのpass_score(90)でも合格するはず
+    const attemptRes = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz/attempts`)
+      .set(authHeader(learner))
+      .send({ answers: [{ questionId: question.id, choiceIds: [correctChoiceId] }] });
+    expect(attemptRes.body.attempt.score).toBe(100);
+    expect(attemptRes.body.attempt.isPassed).toBe(true);
+  });
+
+  it("treats pass_score=0 as an automatic pass regardless of answers", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+    const lesson = makeLesson(chapter.id);
+
+    const createRes = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(admin))
+      .send({ ...quizPayload("第1章の小テスト"), passScore: 0 });
+    expect(createRes.body.quiz.passScore).toBe(0);
+    const question = createRes.body.questions[0];
+    const wrongChoiceId = question.choices.find((c: any) => !c.isCorrect).id;
+
+    const learner = makeUser({});
+    enroll(learner, course);
+    await request(createApp())
+      .put(`/v1/courses/${course.id}/lessons/${lesson.id}/progress`)
+      .set(authHeader(learner))
+      .send({ completed: true });
+
+    // 全問不正解(0点)でも、pass_score=0なので合格扱いになる
+    const attemptRes = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz/attempts`)
+      .set(authHeader(learner))
+      .send({ answers: [{ questionId: question.id, choiceIds: [wrongChoiceId] }] });
+    expect(attemptRes.body.attempt.score).toBe(0);
+    expect(attemptRes.body.attempt.isPassed).toBe(true);
+  });
+
+  it("defaults passScore to 70 when not specified", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+
+    const createRes = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(admin))
+      .send(quizPayload("第1章の小テスト"));
+    expect(createRes.body.quiz.passScore).toBe(70);
+  });
+});
+
+describe("DELETE /v1/courses/:id/chapters/:chapterId/quiz", () => {
+  it("forbids non-admin roles", async () => {
+    const learner = makeUser({ role: "learner" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+    const res = await request(createApp())
+      .delete(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(learner));
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 when the chapter has no quiz", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+    const res = await request(createApp())
+      .delete(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz`)
+      .set(authHeader(admin));
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("quiz_not_found");
+  });
+
+  it("deletes the chapter quiz and unlocks any chapter it was gating", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter1 = makeChapter(course.id, { display_order: 0 });
+    const chapter2 = makeChapter(course.id, { display_order: 1 });
+
+    await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter1.id}/quiz`)
+      .set(authHeader(admin))
+      .send(quizPayload("第1章の小テスト"));
+
+    const learner = makeUser({});
+    enroll(learner, course);
+    const beforeDetail = await request(createApp()).get(`/v1/courses/${course.id}`).set(authHeader(learner));
+    expect(beforeDetail.body.chapters.find((c: any) => c.id === chapter2.id).isLocked).toBe(true);
+
+    const deleteRes = await request(createApp())
+      .delete(`/v1/courses/${course.id}/chapters/${chapter1.id}/quiz`)
+      .set(authHeader(admin));
+    expect(deleteRes.status).toBe(200);
+
+    const afterDetail = await request(createApp()).get(`/v1/courses/${course.id}`).set(authHeader(learner));
+    expect(afterDetail.body.chapters.find((c: any) => c.id === chapter2.id).isLocked).toBe(false);
+
+    const getRes = await request(createApp())
+      .get(`/v1/courses/${course.id}/chapters/${chapter1.id}/quiz`)
+      .set(authHeader(admin));
+    expect(getRes.status).toBe(404);
+  });
+});
+
+describe("POST /v1/courses/:id/chapters/:chapterId/quiz/import", () => {
+  it("imports questions via CSV into a chapter quiz, creating one if it doesn't exist", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+
+    const csv =
+      "﻿問題文,問題種別,選択肢1,選択肢2,選択肢3,選択肢4,正解\r\n" + "CSVからの問題,single,選択肢A,選択肢B,,,1\r\n";
+
+    const res = await request(createApp())
+      .post(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz/import?mode=append`)
+      .set(authHeader(admin))
+      .attach("file", Buffer.from(csv, "utf-8"), "quiz.csv");
+
+    expect(res.status).toBe(201);
+    expect(res.body.importedCount).toBe(1);
+    expect(res.body.quiz.passScore).toBe(70);
+    expect(res.body.questions).toHaveLength(1);
+  });
+
+  it("returns the CSV template", async () => {
+    const admin = makeUser({ role: "admin" });
+    const course = makeCourseRow({});
+    const chapter = makeChapter(course.id);
+    const res = await request(createApp())
+      .get(`/v1/courses/${course.id}/chapters/${chapter.id}/quiz/import/template`)
+      .set(authHeader(admin));
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/csv");
+  });
+});

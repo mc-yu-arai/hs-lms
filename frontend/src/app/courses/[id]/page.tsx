@@ -31,7 +31,8 @@ export default function CourseDetailPage() {
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [hasQuiz, setHasQuiz] = useState(false);
-  const [chapterQuizIds, setChapterQuizIds] = useState<Set<string>>(new Set());
+  // 章テストの有無・合格点。キーがある章のみ章テストが設定されている
+  const [chapterQuizzes, setChapterQuizzes] = useState<Record<string, { passScore: number }>>({});
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -61,17 +62,20 @@ export default function CourseDetailPage() {
       .catch(() => setHasQuiz(false));
   }, [user, authFetch, courseId, detail]);
 
-  // 章ごとの小テストの有無を検出する(hasQuizと同じパターン。存在しない章は404が返る)
+  // 章ごとの小テストの有無・合格点を検出する(hasQuizと同じパターン。存在しない章は404が返る)
   useEffect(() => {
     if (!user || !detail) return;
     if (!detail.enrolled && user.role === "learner") return;
     Promise.all(
       detail.chapters.map((chapter) =>
         authFetch<QuizDetail>(`/v1/courses/${courseId}/chapters/${chapter.id}/quiz`)
-          .then(() => chapter.id)
+          .then((res) => [chapter.id, res.quiz.passScore] as const)
           .catch(() => null),
       ),
-    ).then((ids) => setChapterQuizIds(new Set(ids.filter((id): id is string => id !== null))));
+    ).then((results) => {
+      const entries = results.filter((r): r is readonly [string, number] => r !== null);
+      setChapterQuizzes(Object.fromEntries(entries.map(([id, passScore]) => [id, { passScore }])));
+    });
   }, [user, authFetch, courseId, detail]);
 
   async function handleEnroll() {
@@ -204,14 +208,20 @@ export default function CourseDetailPage() {
           <h3 className="mb-4 text-base font-semibold text-gray-900">カリキュラム</h3>
           <div className="space-y-6">
             {detail.chapters.map((chapter) => {
+              const chapterQuiz = chapterQuizzes[chapter.id];
               const allChapterLessonsCompleted =
                 chapter.lessons.length > 0 && chapter.lessons.every((l) => lessonProgressById.get(l.id)?.isCompleted);
-              const showChapterQuizButton = detail.enrolled && chapterQuizIds.has(chapter.id) && allChapterLessonsCompleted;
+              const showChapterQuizButton = detail.enrolled && chapterQuiz !== undefined && allChapterLessonsCompleted;
 
               return (
                 <div key={chapter.id}>
-                  <div className="mb-2 flex items-center gap-2">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
                     <h4 className="text-sm font-semibold text-gray-700">{chapter.title}</h4>
+                    {chapterQuiz && (
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        章テストあり（{chapterQuiz.passScore === 0 ? "全員合格" : `合格点: ${chapterQuiz.passScore}点`}）
+                      </span>
+                    )}
                     {chapter.isLocked && (
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
                         🔒 前の章の小テストに合格すると解放されます

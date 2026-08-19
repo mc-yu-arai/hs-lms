@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import type { CourseDetail, QuestionType, QuizDetail } from "@/lib/types";
 import { AdminHeader } from "../../../../../AdminHeader";
+import { QuizImportModal } from "../../../../QuizImportModal";
 
 interface ChoiceDraft {
   key: string;
@@ -43,18 +44,21 @@ export default function AdminChapterQuizPage() {
   const [chapterTitle, setChapterTitle] = useState<string | null>(null);
   const [title, setTitle] = useState("章テスト");
   const [description, setDescription] = useState("");
+  const [passScore, setPassScore] = useState("70");
   const [questions, setQuestions] = useState<QuestionDraft[]>([newQuestion()]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const loadQuiz = useCallback(() => {
     return authFetch<QuizDetail>(`/v1/courses/${courseId}/chapters/${chapterId}/quiz`)
       .then((res) => {
         setTitle(res.quiz.title);
         setDescription(res.quiz.description ?? "");
+        setPassScore(res.quiz.passScore.toString());
         setQuestions(
           res.questions.map((q) => ({
             key: newKey(),
@@ -146,6 +150,7 @@ export default function AdminChapterQuizPage() {
         body: {
           title,
           description: description || null,
+          passScore: passScore ? Number(passScore) : 70,
           questions: questions.map((q) => ({
             questionText: q.questionText,
             questionType: q.questionType,
@@ -176,7 +181,16 @@ export default function AdminChapterQuizPage() {
         <a href={`/admin/courses/${courseId}/edit`} className="mb-4 inline-block text-xs text-gray-500 hover:text-gray-700">
           ← コース編集に戻る
         </a>
-        <h2 className="mb-1 text-lg font-bold text-gray-900">章テスト編集{chapterTitle ? `（${chapterTitle}）` : ""}</h2>
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">章テスト編集{chapterTitle ? `（${chapterTitle}）` : ""}</h2>
+          <button
+            type="button"
+            onClick={() => setShowImportModal(true)}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            CSVでインポート
+          </button>
+        </div>
         <p className="mb-6 text-xs text-gray-400">
           保存すると既存の設問・選択肢は全て置き換わります（1章1テスト）。この章の全レッスンを完了した受講者が任意のタイミングで受験し、合格すると次の章に進めるようになります。
         </p>
@@ -201,7 +215,7 @@ export default function AdminChapterQuizPage() {
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 />
               </label>
-              <label className="block text-sm">
+              <label className="mb-3 block text-sm">
                 <span className="mb-1 block text-gray-700">説明</span>
                 <textarea
                   value={description}
@@ -209,6 +223,23 @@ export default function AdminChapterQuizPage() {
                   rows={2}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                 />
+              </label>
+              <label className="block text-sm sm:w-48">
+                <span className="mb-1 block text-gray-700">合格点</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  required
+                  value={passScore}
+                  onChange={(e) => setPassScore(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+                <span className="mt-1 block text-xs text-gray-400">
+                  {passScore === "0"
+                    ? "0点にすると、テスト結果にかかわらず全員合格になります。"
+                    : "この章のテストだけで判定されます（コース修了テストの合格点とは別）。"}
+                </span>
               </label>
             </section>
 
@@ -313,6 +344,17 @@ export default function AdminChapterQuizPage() {
           </form>
         )}
       </div>
+
+      {showImportModal && (
+        <QuizImportModal
+          importUrl={`/v1/courses/${courseId}/chapters/${chapterId}/quiz/import`}
+          templateUrl={`/v1/courses/${courseId}/chapters/${chapterId}/quiz/import/template`}
+          onClose={() => setShowImportModal(false)}
+          onImported={() => {
+            loadQuiz();
+          }}
+        />
+      )}
     </main>
   );
 }

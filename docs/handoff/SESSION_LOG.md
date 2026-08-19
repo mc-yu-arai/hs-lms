@@ -786,3 +786,17 @@
 
 ### 次回セッションへの申し送り
 1. 今回の修正で実装は完結。push済み（コミットハッシュは次回`git log`で確認すること）
+
+## 2026-08-19（続き・章テスト機能のUI改善: 個別合格点・管理画面統合・CSVインポート）
+### 実施内容
+- ユーザーから章テスト機能のUI改善指示を受ける。確定パラメータ: 合格点は章テストごとに個別設定できる（`quizzes.pass_score`追加）／合格点0点=結果にかかわらず次の章に進める運用
+- マイグレーション（`supabase/migrations/20260819000002_add_quiz_pass_score.sql`、`quizzes.pass_score INTEGER NOT NULL DEFAULT 70 CHECK (0〜100)`）を作成しユーザーに提示
+- バックエンド: `quizRepository.ts`の`Quiz`型・`QuizInput`に`pass_score`/`passScore`を追加。`createOrReplaceChapterQuiz`/`ensureChapterQuiz`は明示的に`pass_score`をセットし、`createOrReplaceCourseQuiz`/`ensureQuizForCourse`側は一切触れない設計にして「コース修了テストは引き続き`course.pass_score`」を完全に維持した。`routes/courses.ts`の章テストGET/POSTレスポンスの`passScore`を`course.pass_score`から`quiz.pass_score`に修正（従来の実装ミスの是正でもある）、章テスト回答送信APIの採点も`quiz.pass_score`に変更。`DELETE /v1/courses/:id/chapters/:chapterId/quiz`を新設（`deleteChapterQuiz`、ON DELETE CASCADEで設問・受験履歴も連鎖削除、削除後はその章が次章をロックしなくなることを`computeChapterLocks`の既存ロジックがそのまま処理）。`quizImportService.ts`を`importRowsIntoQuiz`共通関数に整理し、章テスト版CSVインポート（`importChapterQuizQuestionsFromCsv`/`ensureChapterQuiz`）を追加、`POST/GET /v1/courses/:id/chapters/:chapterId/quiz/import`・`.../import/template`を新設（テンプレートはコース/章で共通のため`buildQuizCsvTemplate()`を流用）
+- Jestテスト8件追加（`chapterQuiz.test.ts`: 個別合格点での採点・pass_score=0の自動合格・デフォルト70・DELETE系3件・CSVインポート系2件）。バックエンド合計209件全てパス
+- フロントエンド: `QuizImportModal.tsx`を`admin/courses/[id]/quiz/`から`admin/courses/`直下へ移動し、`courseId`固定ではなく`importUrl`/`templateUrl`を受け取る汎用コンポーネントに変更（コース修了テスト編集画面・章テスト編集画面の両方から共用）。章テスト編集画面（`chapters/[chapterId]/quiz/page.tsx`）に合格点入力欄（0点時の説明文付き）とCSVインポートボタンを追加。`CourseForm.tsx`の章カードを、マウント時に各章のテスト有無・問題数・合格点を取得した上で、テスト無しなら「+ 章テストを追加」ボタン、テストありなら問題数・合格点のサマリーカード＋「編集」「削除」（`window.confirm`確認後にDELETE）を表示する形に改善。受講者向け`/courses/[id]`のカリキュラム表示に「章テストあり（合格点: X点）」／0点時「章テストあり（全員合格）」の青バッジを追加
+- `npx tsc --noEmit`・対象ファイルの`eslint`ともクリーン
+- マイグレーション作成時点ではSupabase側に未適用のため、コミットはローカルに留めてpushを保留中
+
+### 次回セッションへの申し送り
+1. `supabase/migrations/20260819000002_add_quiz_pass_score.sql`をユーザーがSupabase側のSQL Editorで適用したことを確認してから、コミットをpushすること（適用前にpushすると既存の章テスト機能の採点が全て不合格判定になり壊れるため厳守）
+2. push後、実データで①章テストごとに異なる合格点を設定して採点結果が変わること、②合格点0点で不正解でも合格になること、③CSVインポートで章テストに設問を追加できること、④`CourseForm.tsx`の章カードで追加・編集・削除が一通り動くことを確認すること

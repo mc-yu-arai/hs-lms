@@ -5,15 +5,18 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import type { CsvRowError } from "@/lib/types";
 
+// コース修了テスト・章テストの両方から使う共通モーダル。対象quizのURLだけが呼び出し元で異なる
+// (章テストの場合はimportUrl/templateUrlに章テスト用のパスを渡す)。
 interface QuizImportModalProps {
-  courseId: string;
+  importUrl: string;
+  templateUrl: string;
   onClose: () => void;
   onImported: () => void;
 }
 
 type ImportMode = "append" | "replace";
 
-export function QuizImportModal({ courseId, onClose, onImported }: QuizImportModalProps) {
+export function QuizImportModal({ importUrl, templateUrl, onClose, onImported }: QuizImportModalProps) {
   const { authFetch, authFetchBlob } = useAuth();
 
   const [file, setFile] = useState<File | null>(null);
@@ -27,7 +30,7 @@ export function QuizImportModal({ courseId, onClose, onImported }: QuizImportMod
   async function handleDownloadTemplate() {
     setDownloadError(null);
     try {
-      const blob = await authFetchBlob(`/v1/courses/${courseId}/quiz/import/template`);
+      const blob = await authFetchBlob(templateUrl);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -50,7 +53,7 @@ export function QuizImportModal({ courseId, onClose, onImported }: QuizImportMod
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await authFetch<{ importedCount: number }>(`/v1/courses/${courseId}/quiz/import?mode=${mode}`, {
+      const res = await authFetch<{ importedCount: number }>(`${importUrl}?mode=${mode}`, {
         method: "POST",
         body: formData,
       });
@@ -127,7 +130,7 @@ export function QuizImportModal({ courseId, onClose, onImported }: QuizImportMod
           </fieldset>
 
           <p className="text-xs text-gray-500">
-            列構成: 問題文,問題種別(single/multiple),選択肢1〜4(2〜4択、空欄は末尾から詰めて省略可),正解(単一選択は1〜4の数字、複数選択は&quot;1,3&quot;のようにカンマ区切り)。1件でもエラーがあると全件インポートされません。テスト未作成のコースの場合は仮タイトルでテストを自動作成します。
+            列構成: 問題文,問題種別(single/multiple),選択肢1〜4(2〜4択、空欄は末尾から詰めて省略可),正解(単一選択は1〜4の数字、複数選択は&quot;1,3&quot;のようにカンマ区切り)。1件でもエラーがあると全件インポートされません。テスト未作成の場合は仮タイトルでテストを自動作成します。
           </p>
 
           {error && (

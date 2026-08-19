@@ -118,7 +118,7 @@ CREATE TABLE public.lesson_progress (
 **「完了(completed)」の判定について**: 現時点では「コース内の全レッスンが完了」のみでenrollmentを`completed`にしている。仕様書3.2.4は本来「全レッスン完了 かつ 修了テスト合格」を要求しているが、テスト機能(Quiz/Question/Answer)は別ブロックのため未実装。テスト機能ブロック着手時に、この判定ロジック(`courseRepository.ts`の`recalculateEnrollmentProgress`)を「テスト合格」も条件に含めるよう拡張する必要がある。
 
 ## テスト機能ブロックのテーブル
-当初は「1コース=1テスト」（コース修了テストのみ）だったが、2026-08-19に章ごとの小テスト機能を追加し、`quizzes`に`quiz_type`（`'course'`/`'chapter'`）と`chapter_id`（章テストのみ使用）を追加した。詳細は本ファイル末尾の「章ごとの小テスト機能ブロック」を参照。合格点は`courses.pass_score`を流用するため`quizzes`テーブルには持たせない。無制限受験のため`quiz_attempts`は1受講(enrollment)につき複数行になり得る。
+当初は「1コース=1テスト」（コース修了テストのみ）だったが、2026-08-19に章ごとの小テスト機能を追加し、`quizzes`に`quiz_type`（`'course'`/`'chapter'`）と`chapter_id`（章テストのみ使用）を追加した。同日、続けて章テストごとに合格点を個別設定できる`pass_score`カラムも追加した（詳細は本ファイル末尾の「章ごとの小テスト機能ブロック」参照）。コース修了テスト（`quiz_type='course'`）は引き続き`courses.pass_score`で採点するため`quizzes.pass_score`は未使用のまま（デフォルト70）残る。無制限受験のため`quiz_attempts`は1受講(enrollment)につき複数行になり得る。
 
 ```sql
 CREATE TABLE public.quizzes (
@@ -126,13 +126,14 @@ CREATE TABLE public.quizzes (
   course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
   chapter_id UUID REFERENCES public.chapters(id) ON DELETE CASCADE, -- 章テストのみ設定(quiz_type='chapter')
   quiz_type VARCHAR(20) NOT NULL DEFAULT 'course' CHECK (quiz_type IN ('course', 'chapter')),
+  pass_score INTEGER NOT NULL DEFAULT 70 CHECK (pass_score >= 0 AND pass_score <= 100), -- 章テストのみ使用。0=結果にかかわらず全員合格
   title VARCHAR(200) NOT NULL,
   description TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT now(),
   updated_at TIMESTAMP NOT NULL DEFAULT now(),
   CHECK ((quiz_type = 'chapter' AND chapter_id IS NOT NULL) OR (quiz_type = 'course' AND chapter_id IS NULL))
   -- 実際の制約は部分UNIQUEインデックス2本(quizzes_course_final_quiz_unique/quizzes_chapter_quiz_unique)。
-  -- 詳細はsupabase/migrations/20260819000001_add_chapter_quiz.sql参照
+  -- 詳細はsupabase/migrations/20260819000001_add_chapter_quiz.sql・20260819000002_add_quiz_pass_score.sql参照
 );
 
 CREATE TABLE public.questions (
@@ -282,7 +283,16 @@ zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase 
 - **章テストの受験前提条件**: 章テストの回答送信API（`POST .../chapters/:chapterId/quiz/attempts`）は、その章の全レッスンが完了していないと409 `chapter_lessons_incomplete`で拒否する（`isChapterLessonsComplete`）。既存のコース修了テストにはこの前提条件チェックが元々無い（フロントの導線のみで制御）ため、今回新設した章テスト固有のサーバー側ガード。なお章がロック中の場合、そもそもその章のレッスン進捗を記録できない（`PUT .../progress`が403 `chapter_locked`を返す）ため、この409チェックが章ロックに対する防御としても機能する。
 - **コース完了条件**: `computeQuizRequirementsMet`（`routes/courses.ts`）が「全ての章テスト（あれば）の合格」＋「`has_final_quiz=true`の場合のみコース修了テスト（あれば）の合格」を判定し、`recalculateEnrollmentProgress`の`quizRequirementMet`引数として渡す。レッスン進捗更新API・コース修了テスト回答送信API・章テスト回答送信APIの3箇所全てから同じ関数を呼ぶ。
 - **テスト**: `backend/tests/chapterQuiz.test.ts`に10件追加（バックエンド合計201件全てパス）。管理者以外禁止・章の所属コース検証・章テストとコース修了テストの独立性・受験前提条件（レッスン未完了時の409）・章ロックの発生と解除・adminの章ロック対象外・コース完了条件（全章テスト+修了テスト／has_final_quiz=false時の修了テスト除外）を検証。
-- **フロントエンド**: 管理者向けは`CourseForm.tsx`に「コース修了テストを設定する」トグルと、既存の章（保存済みで実IDを持つもののみ）に「章テストを追加・編集」リンクを追加し、`/admin/courses/[id]/chapters/[chapterId]/quiz`（既存の`/admin/courses/[id]/quiz`を章テスト用に複製・改変）へ遷移する。新規追加した未保存の章にはリンクを出さず、先にコースを保存するよう促す文言を表示する。受講者向けは`/courses/[id]`のカリキュラム表示にロック中バッジ・ロック中レッスンの非リンク化・章テストボタン（その章の全レッスン完了時のみ表示、`hasQuiz`検出と同じ「各章にGETして404かどうかで判定」方式）を追加し、`/courses/[id]/chapters/[chapterId]/quiz`・`.../quiz/result`（既存のコース修了テスト受験・結果画面を複製・改変）を新設した。
+- **フロントエンド（初版・章テストの土台）**: 管理者向けは`CourseForm.tsx`に「コース修了テストを設定する」トグルと、既存の章（保存済みで実IDを持つもののみ）に「章テストを追加・編集」リンクを追加し、`/admin/courses/[id]/chapters/[chapterId]/quiz`（既存の`/admin/courses/[id]/quiz`を章テスト用に複製・改変）へ遷移する。新規追加した未保存の章にはリンクを出さず、先にコースを保存するよう促す文言を表示する。受講者向けは`/courses/[id]`のカリキュラム表示にロック中バッジ・ロック中レッスンの非リンク化・章テストボタン（その章の全レッスン完了時のみ表示、`hasQuiz`検出と同じ「各章にGETして404かどうかで判定」方式）を追加し、`/courses/[id]/chapters/[chapterId]/quiz`・`.../quiz/result`（既存のコース修了テスト受験・結果画面を複製・改変）を新設した。
+
+### 章テストの合格点個別設定・管理UI改善（2026-08-19続き）
+
+- **`quizzes.pass_score`**: `INTEGER NOT NULL DEFAULT 70 CHECK (pass_score >= 0 AND pass_score <= 100)`。章テスト(`quiz_type='chapter'`)のみ、この値で合否判定する（コース修了テストは`courses.pass_score`のまま）。`0`点の場合、`submitQuizAttempt`の判定式(`score >= passScore`)が得点にかかわらず常に`true`になるため、「結果にかかわらず全員合格」を専用の分岐なしで実現している。`backend/src/services/quizRepository.ts`の`createOrReplaceChapterQuiz`/`ensureChapterQuiz`が明示的に`pass_score`をセットする（コース修了テスト側の`createOrReplaceCourseQuiz`/`ensureQuizForCourse`は`pass_score`キーを渡さず、DBのデフォルト値のまま放置＝更新でも一切触らない設計）。
+- **API**: `GET/POST /v1/courses/:id/chapters/:chapterId/quiz`のレスポンスの`quiz.passScore`は`quiz.pass_score`（章テスト自身の値）を返すよう変更（従来は誤って`course.pass_score`を返していた）。コース修了テスト側の`GET/POST /v1/courses/:id/quiz`は変更なし（引き続き`course.pass_score`を返す）。
+- **章テストのCSVインポート**: 当初スコープ外としていたが、今回追加。`POST/GET /v1/courses/:id/chapters/:chapterId/quiz/import`・`.../import/template`を新設（`quizImportService.ts`の`importChapterQuizQuestionsFromCsv`/`ensureChapterQuiz`）。CSVの列構成・バリデーションはコース修了テスト側と共通（`importRowsIntoQuiz`に共通化）。テンプレートの内容もコース/章で同一のため、専用の生成ロジックは持たせず`buildQuizCsvTemplate()`をそのまま流用する。
+- **章テストの削除**: `DELETE /v1/courses/:id/chapters/:chapterId/quiz`を新設（`quizRepository.ts`の`deleteChapterQuiz`。`quizzes`行を消せば`questions`/`choices`/`quiz_attempts`/`quiz_answers`はON DELETE CASCADEで連鎖削除される）。削除するとその章は次章をロックしなくなる（`computeChapterLocks`が「章に小テストが無ければ次章をロックしない」という既存ルールでそのまま処理するため、削除専用の追加ロジックは不要）。コース修了テスト側の削除は今回もスコープ外のまま（要望なし）。
+- **フロントエンド**: `QuizImportModal.tsx`を`admin/courses/[id]/quiz/`から`admin/courses/`直下へ移動し、`courseId`ではなく`importUrl`/`templateUrl`を受け取る汎用コンポーネントに変更（コース修了テスト編集画面・章テスト編集画面の両方から共用）。章テスト編集画面（`chapters/[chapterId]/quiz/page.tsx`）に合格点入力欄（0点の場合の説明文付き）とCSVインポートボタンを追加。`CourseForm.tsx`の章カードは、保存済みの章についてマウント時に各章のテスト有無・問題数・合格点を取得し、テスト無しなら「+ 章テストを追加」ボタン、テストありなら「問題数: N問 / 合格点: X点（0点は「全員合格」表記）」のサマリーカード＋「編集」「削除」（`window.confirm`確認後にDELETE）を表示するよう変更。受講者向け`/courses/[id]`のカリキュラム表示にも、章テストがある章に「章テストあり（合格点: X点）」／0点時は「章テストあり（全員合格）」の青バッジを追加。
+- **テスト**: `chapterQuiz.test.ts`に8件追加（個別合格点での採点・pass_score=0の自動合格・デフォルト70・DELETE系3件・CSVインポート系2件、バックエンド合計209件全てパス）。
 
 ## マイグレーション履歴
 | ファイル | 概要 | 適用状況 |
@@ -296,6 +306,7 @@ zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase 
 | `supabase/migrations/20260710000001_add_lesson_content_upload.sql` | `lessons.content_type`に`'learnwiz'`追加、`scorm_version`カラム追加 | 適用済み（2026-07-14ユーザー確認） |
 | `supabase/migrations/20260730000001_add_course_limited_access.sql` | `courses.is_limited`カラム追加（グループ限定公開） | 適用済み（2026-07-30ユーザー確認） |
 | `supabase/migrations/20260819000001_add_chapter_quiz.sql` | `quizzes.quiz_type`/`chapter_id`追加、`UNIQUE(course_id)`を部分UNIQUEインデックス2本に置換、`courses.has_final_quiz`カラム追加（章ごとの小テスト機能） | 適用済み（2026-08-19ユーザー確認） |
+| `supabase/migrations/20260819000002_add_quiz_pass_score.sql` | `quizzes.pass_score`カラム追加（章テストごとの個別合格点） | 適用待ち（ユーザーによるSupabase側での適用待ち） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）

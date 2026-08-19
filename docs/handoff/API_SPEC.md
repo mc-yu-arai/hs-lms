@@ -43,10 +43,13 @@
 | POST | /v1/courses/:id/quiz | 要・admin/super_admin限定 | コース修了テストの作成・全置換（`questions`配列をネストで受け取る。1コースにつき最大1件）。既存の受験履歴(quiz_attempts)は設問のON DELETE CASCADEで一緒に削除される点に注意 |
 | POST | /v1/courses/:id/quiz/attempts | Bearer要 | 回答送信・採点。設問ごとに選択肢集合が完全一致すれば正解、`(正解数/設問数)×100`が得点。`score >= courses.pass_score`で合格。無制限に再受験可。enrollmentの完了判定も同時に再計算 |
 | GET | /v1/courses/:id/quiz/attempts | Bearer要 | 自分の受験履歴一覧（得点・合否・受験日時、新しい順） |
-| GET | /v1/courses/:id/chapters/:chapterId/quiz | Bearer要 | 章テスト取得（設問・選択肢）。GET /quizと同様、学習者は要受講登録・`isCorrect`を隠す |
-| POST | /v1/courses/:id/chapters/:chapterId/quiz | 要・admin/super_admin限定 | 章テストの作成・全置換（1章につき最大1件）。コース修了テストとは独立（`quizzes.quiz_type`で区別） |
-| POST | /v1/courses/:id/chapters/:chapterId/quiz/attempts | Bearer要 | 章テストの回答送信・採点。**その章の全レッスンが完了していないと409 `chapter_lessons_incomplete`**。合格すると次章のロックが解除される。enrollmentの完了判定も同時に再計算 |
+| GET | /v1/courses/:id/chapters/:chapterId/quiz | Bearer要 | 章テスト取得（設問・選択肢）。`passScore`は章テスト自身の`quizzes.pass_score`（コース修了テストの`course.pass_score`とは独立）。学習者は要受講登録・`isCorrect`を隠す |
+| POST | /v1/courses/:id/chapters/:chapterId/quiz | 要・admin/super_admin限定 | 章テストの作成・全置換（1章につき最大1件）。コース修了テストとは独立（`quizzes.quiz_type`で区別）。`passScore`（0〜100、未指定時70）を指定可。**0にすると、その章テストは結果にかかわらず常に合格扱いになる** |
+| DELETE | /v1/courses/:id/chapters/:chapterId/quiz | 要・admin/super_admin限定 | 章テストの削除（設問・選択肢・受験履歴も連鎖削除）。存在しなければ404。削除するとその章はもう次章をロックしない |
+| POST | /v1/courses/:id/chapters/:chapterId/quiz/attempts | Bearer要 | 章テストの回答送信・採点（章テスト自身の`passScore`で判定）。**その章の全レッスンが完了していないと409 `chapter_lessons_incomplete`**。合格すると次章のロックが解除される。enrollmentの完了判定も同時に再計算 |
 | GET | /v1/courses/:id/chapters/:chapterId/quiz/attempts | Bearer要 | 自分の章テスト受験履歴一覧 |
+| POST | /v1/courses/:id/chapters/:chapterId/quiz/import | 要・admin/super_admin限定 | 章テストへのCSV一括インポート（`multipart/form-data`、フィールド名`file`、クエリ`mode=append\|replace`必須）。列構成・バリデーションは`/v1/courses/:id/quiz/import`と共通。テスト未作成の章には仮タイトル・合格点70で自動作成 |
+| GET | /v1/courses/:id/chapters/:chapterId/quiz/import/template | 要・admin/super_admin限定 | 章テストCSVインポート用テンプレートのダウンロード（内容は`/v1/courses/:id/quiz/import/template`と同一） |
 | POST | /v1/courses/:id/certificate | Bearer要 | 修了証発行。コース未修了なら409。既に発行済みなら200で既存レコード、新規発行なら201を返す（`UNIQUE(user_id, course_id)`による冪等） |
 | GET | /v1/courses/:id/certificate/download | Bearer要 | 修了証PDFダウンロード。未発行でも修了済みなら自動発行してから生成。`Content-Type: application/pdf` |
 | GET | /v1/certificates/:uuid/verify | 不要 | QRコード・共有URLからの検証用。`verification_uuid`で検索し、コース名・受講者氏名・発行日を返す（メールアドレス等は含めない）。見つからなければ404 |

@@ -33,12 +33,19 @@ import {
   getQuestionsWithChoices,
   createOrReplaceCourseQuiz,
   createOrReplaceChapterQuiz,
+  deleteChapterQuiz,
   submitQuizAttempt,
   listAttemptsForEnrollment,
   hasPassedQuiz,
   type QuestionWithChoices,
 } from "../services/quizRepository";
-import { importQuizQuestionsFromCsv, buildQuizCsvTemplate, QuizCsvValidationError, type ImportMode } from "../services/quizImportService";
+import {
+  importQuizQuestionsFromCsv,
+  importChapterQuizQuestionsFromCsv,
+  buildQuizCsvTemplate,
+  QuizCsvValidationError,
+  type ImportMode,
+} from "../services/quizImportService";
 import { listGroupsForCourse } from "../services/groupRepository";
 
 export const coursesRouter = Router();
@@ -505,6 +512,8 @@ const quizInputSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().nullable().optional(),
   questions: z.array(questionInputSchema).min(1),
+  // 章テストのみ使用。コース修了テストは指定されても無視され、courses.pass_scoreのまま
+  passScore: z.number().int().min(0).max(100).optional(),
 });
 
 coursesRouter.post(
@@ -625,7 +634,7 @@ coursesRouter.get(
     const questions = await getQuestionsWithChoices(quiz.id);
 
     return res.status(200).json({
-      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: quiz.pass_score },
       questions: serializeQuestions(questions, admin),
     });
   }),
@@ -645,9 +654,25 @@ coursesRouter.post(
     const questions = await getQuestionsWithChoices(quiz.id);
 
     return res.status(200).json({
-      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: course.pass_score },
+      quiz: { id: quiz.id, title: quiz.title, description: quiz.description, passScore: quiz.pass_score },
       questions: serializeQuestions(questions, true),
     });
+  }),
+);
+
+coursesRouter.delete(
+  "/:id/chapters/:chapterId/quiz",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    const deleted = await deleteChapterQuiz(req.params.chapterId);
+    if (!deleted) throw new HttpError(404, "quiz_not_found", "この章に小テストは設定されていません");
+
+    return res.status(200).json({ message: "章テストを削除しました" });
   }),
 );
 
@@ -678,7 +703,9 @@ coursesRouter.post(
     const wasCompleted = enrollment.status === "completed";
 
     const { answers } = quizAttemptSchema.parse(req.body);
-    const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, course.pass_score);
+    // 章テストはquiz.pass_score(章ごとに個別設定可能。0の場合は結果にかかわらず全員合格)で採点する。
+    // コース修了テストのcourse.pass_scoreとは切り離されている
+    const { attempt, questionResults } = await submitQuizAttempt(enrollment.id, quiz, answers, quiz.pass_score);
 
     const totalLessonCount = chaptersWithLessons.reduce((sum, c) => sum + c.lessons.length, 0);
     const quizRequirementMet = await computeQuizRequirementsMet(course, chaptersWithLessons, enrollment.id);
@@ -770,6 +797,60 @@ coursesRouter.get(
     const course = await getCourseById(req.params.id);
     if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
 
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="quiz_import_template.csv"');
+    return res.status(200).send(buildQuizCsvTemplate());
+  }),
+);
+
+coursesRouter.post(
+  "/:id/chapters/:chapterId/quiz/import",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  csvUpload.single("file"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    if (!req.file) {
+      throw new HttpError(400, "file_required", "CSVファイルを指定してください");
+    }
+
+    const modeResult = importModeSchema.safeParse(req.query.mode);
+    if (!modeResult.success) {
+      throw new HttpError(400, "invalid_mode", "modeはappendまたはreplaceで指定してください");
+    }
+    const mode: ImportMode = modeResult.data;
+
+    try {
+      const result = await importChapterQuizQuestionsFromCsv(course.id, req.params.chapterId, req.file.buffer.toString("utf-8"), mode);
+      return res.status(201).json({
+        quiz: { id: result.quiz.id, title: result.quiz.title, description: result.quiz.description, passScore: result.quiz.pass_score },
+        questions: serializeQuestions(result.questions, true),
+        importedCount: result.importedCount,
+      });
+    } catch (err) {
+      if (err instanceof QuizCsvValidationError) {
+        return res.status(400).json({
+          error: { code: "csv_validation_error", message: err.message, rowErrors: err.rowErrors },
+        });
+      }
+      throw err;
+    }
+  }),
+);
+
+coursesRouter.get(
+  "/:id/chapters/:chapterId/quiz/import/template",
+  requireAuth(),
+  requireRole("admin", "super_admin"),
+  asyncHandler(async (req, res) => {
+    const course = await getCourseById(req.params.id);
+    if (!course) throw new HttpError(404, "course_not_found", "コースが見つかりません");
+    await getValidChapter(course.id, req.params.chapterId);
+
+    // テンプレートの列構成はコース修了テスト・章テストで共通のため、生成ロジックはbuildQuizCsvTemplate()を流用する
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="quiz_import_template.csv"');
     return res.status(200).send(buildQuizCsvTemplate());

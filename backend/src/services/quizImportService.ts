@@ -2,6 +2,7 @@ import { supabaseAdmin } from "../lib/supabase";
 import { parseCsv } from "../lib/csv";
 import {
   ensureQuizForCourse,
+  ensureChapterQuiz,
   getNextDisplayOrder,
   getQuestionsWithChoices,
   insertQuestionsIntoQuiz,
@@ -13,6 +14,7 @@ import {
 export type ImportMode = "append" | "replace";
 
 export const DEFAULT_QUIZ_TITLE = "修了確認テスト";
+export const DEFAULT_CHAPTER_QUIZ_TITLE = "章テスト";
 
 export interface CsvRowError {
   row: number;
@@ -167,14 +169,8 @@ export interface QuizImportResult {
 // 「1件でもエラーがあれば全件ロールバック」のため、事前に全件バリデーションを完了させてから書き込みを行う。
 // replaceモードは「新しい設問の挿入が全件成功してから古い設問を削除する」順序にすることで、挿入途中の
 // 失敗時に既存データを失わずに済む設計にしている（userImportService.tsの疑似ロールバックと同じ考え方）。
-export async function importQuizQuestionsFromCsv(courseId: string, csvText: string, mode: ImportMode): Promise<QuizImportResult> {
-  const { rows, errors } = parseAndValidateQuizRows(csvText);
-  if (errors.length > 0) {
-    throw new QuizCsvValidationError(errors);
-  }
-
-  const quiz = await ensureQuizForCourse(courseId, DEFAULT_QUIZ_TITLE);
-
+// コース修了テスト・章テストの両方から呼ばれる共通実装(対象quizの取得/作成方法だけが呼び出し元で異なる)。
+async function importRowsIntoQuiz(quiz: Quiz, rows: ParsedQuestionRow[], mode: ImportMode): Promise<QuizImportResult> {
   const previousQuestions = mode === "replace" ? await getQuestionsWithChoices(quiz.id) : [];
   const startOrder = mode === "append" ? await getNextDisplayOrder(quiz.id) : 0;
 
@@ -194,4 +190,27 @@ export async function importQuizQuestionsFromCsv(courseId: string, csvText: stri
 
   const questions = await getQuestionsWithChoices(quiz.id);
   return { quiz, questions, importedCount: rows.length };
+}
+
+export async function importQuizQuestionsFromCsv(courseId: string, csvText: string, mode: ImportMode): Promise<QuizImportResult> {
+  const { rows, errors } = parseAndValidateQuizRows(csvText);
+  if (errors.length > 0) {
+    throw new QuizCsvValidationError(errors);
+  }
+  const quiz = await ensureQuizForCourse(courseId, DEFAULT_QUIZ_TITLE);
+  return importRowsIntoQuiz(quiz, rows, mode);
+}
+
+export async function importChapterQuizQuestionsFromCsv(
+  courseId: string,
+  chapterId: string,
+  csvText: string,
+  mode: ImportMode,
+): Promise<QuizImportResult> {
+  const { rows, errors } = parseAndValidateQuizRows(csvText);
+  if (errors.length > 0) {
+    throw new QuizCsvValidationError(errors);
+  }
+  const quiz = await ensureChapterQuiz(courseId, chapterId, DEFAULT_CHAPTER_QUIZ_TITLE);
+  return importRowsIntoQuiz(quiz, rows, mode);
 }

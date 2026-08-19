@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import type { QuestionType, QuizDetail } from "@/lib/types";
 import { AdminHeader } from "../../../AdminHeader";
-import { QuizImportModal } from "./QuizImportModal";
+import { QuizImportModal } from "../../QuizImportModal";
 
 interface ChoiceDraft {
   key: string;
@@ -314,7 +314,8 @@ export default function AdminQuizPage() {
 
       {showImportModal && (
         <QuizImportModal
-          courseId={courseId}
+          importUrl={`/v1/courses/${courseId}/quiz/import`}
+          templateUrl={`/v1/courses/${courseId}/quiz/import/template`}
           onClose={() => setShowImportModal(false)}
           onImported={() => {
             loadQuiz();

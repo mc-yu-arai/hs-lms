@@ -10,6 +10,7 @@ import type {
   LessonContentType,
   LessonContentUploadResult,
   LessonVideoUploadResult,
+  QuizDetail,
   ScormVersion,
 } from "@/lib/types";
 import { CourseGroupsSection } from "./CourseGroupsSection";
@@ -198,6 +199,9 @@ export function CourseForm({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadState, setUploadState] = useState<Record<string, { status: "uploading" | "error"; message?: string }>>({});
+  // 章テストの有無・概要(問題数・合格点)。保存済みの章のみキーが入る(未ロードはundefined、テスト無しはnull)
+  const [chapterQuizInfo, setChapterQuizInfo] = useState<Record<string, { questionCount: number; passScore: number } | null>>({});
+  const [deletingQuizChapterId, setDeletingQuizChapterId] = useState<string | null>(null);
 
   useEffect(() => {
     authFetch<{ courses: Course[] }>("/v1/courses")
@@ -207,6 +211,34 @@ export function CourseForm({
       .then((res) => setCategories(res.categories))
       .catch(() => undefined);
   }, [authFetch, excludeCourseId]);
+
+  useEffect(() => {
+    if (!initial) return;
+    initial.chapters.forEach((chapter) => {
+      authFetch<QuizDetail>(`/v1/courses/${initial.course.id}/chapters/${chapter.id}/quiz`)
+        .then((res) => setChapterQuizInfo((prev) => ({ ...prev, [chapter.id]: { questionCount: res.questions.length, passScore: res.quiz.passScore } })))
+        .catch((err) => {
+          if (err instanceof ApiError && err.status === 404) {
+            setChapterQuizInfo((prev) => ({ ...prev, [chapter.id]: null }));
+          }
+        });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.course.id]);
+
+  async function handleDeleteChapterQuiz(chapterId: string) {
+    if (!initial) return;
+    if (!window.confirm("この章の小テストを削除します。設問・受験履歴もすべて削除され、元に戻せません。よろしいですか？")) return;
+    setDeletingQuizChapterId(chapterId);
+    try {
+      await authFetch(`/v1/courses/${initial.course.id}/chapters/${chapterId}/quiz`, { method: "DELETE" });
+      setChapterQuizInfo((prev) => ({ ...prev, [chapterId]: null }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "章テストの削除に失敗しました");
+    } finally {
+      setDeletingQuizChapterId(null);
+    }
+  }
 
   function updateChapter(key: string, patch: Partial<ChapterDraft>) {
     setChapters((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch } : c)));
@@ -483,12 +515,37 @@ export function CourseForm({
 
               <div className="mb-3">
                 {initial && chapter.id ? (
-                  <a
-                    href={`/admin/courses/${initial.course.id}/chapters/${chapter.id}/quiz`}
-                    className="inline-block rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    章テストを追加・編集
-                  </a>
+                  chapterQuizInfo[chapter.id] ? (
+                    <div className="flex flex-wrap items-center gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                      <span className="font-medium text-gray-900">章テストあり</span>
+                      <span>問題数: {chapterQuizInfo[chapter.id]!.questionCount}問</span>
+                      <span>
+                        合格点: {chapterQuizInfo[chapter.id]!.passScore}点
+                        {chapterQuizInfo[chapter.id]!.passScore === 0 && "（全員合格）"}
+                      </span>
+                      <a
+                        href={`/admin/courses/${initial.course.id}/chapters/${chapter.id}/quiz`}
+                        className="ml-auto rounded border border-gray-300 bg-white px-2 py-1 font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        編集
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteChapterQuiz(chapter.id!)}
+                        disabled={deletingQuizChapterId === chapter.id}
+                        className="rounded border border-red-300 px-2 py-1 font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        {deletingQuizChapterId === chapter.id ? "削除中..." : "削除"}
+                      </button>
+                    </div>
+                  ) : (
+                    <a
+                      href={`/admin/courses/${initial.course.id}/chapters/${chapter.id}/quiz`}
+                      className="inline-block rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      + 章テストを追加
+                    </a>
+                  )
                 ) : (
                   <p className="text-xs text-gray-400">
                     章テストは、この章を保存した後に追加できます（新規追加した章はコース保存前は編集できません）

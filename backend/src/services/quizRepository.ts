@@ -10,6 +10,10 @@ export interface Quiz {
   quiz_type: QuizType;
   title: string;
   description: string | null;
+  // コース修了テスト(quiz_type='course')は引き続きcourses.pass_scoreで採点するため、この値は未使用のまま
+  // (デフォルト70)残る。章テスト(quiz_type='chapter')のみこの値で合否判定する。0の場合、submitQuizAttemptの
+  // 判定式(score >= passScore)が常にtrueになるため「結果にかかわらず全員合格」を追加分岐なしで実現できる
+  pass_score: number;
   created_at: string;
   updated_at: string;
 }
@@ -102,6 +106,8 @@ export interface QuizInput {
   title: string;
   description?: string | null;
   questions: QuestionInput[];
+  // 章テストのみ使用(コース修了テストは指定されても無視され、courses.pass_scoreのまま)
+  passScore?: number;
 }
 
 // questionsを全置換する(既存のquiz_attempts/quiz_answersはquestions/choicesのON DELETE CASCADEで
@@ -109,7 +115,14 @@ export interface QuizInput {
 // コース修了テスト・章テストの両方から呼ばれる共通実装(existingQuizとquizRowの組み立てだけが呼び出し元で異なる)。
 async function createOrReplaceQuizRow(
   existing: Quiz | null,
-  quizRow: { course_id: string; chapter_id: string | null; quiz_type: QuizType; title: string; description: string | null },
+  quizRow: {
+    course_id: string;
+    chapter_id: string | null;
+    quiz_type: QuizType;
+    title: string;
+    description: string | null;
+    pass_score?: number;
+  },
   questions: QuestionInput[],
 ): Promise<Quiz> {
   const { data: quiz, error: quizError } = existing
@@ -160,9 +173,24 @@ export async function createOrReplaceChapterQuiz(courseId: string, chapterId: st
   const existing = await getQuizByChapterId(chapterId);
   return createOrReplaceQuizRow(
     existing,
-    { course_id: courseId, chapter_id: chapterId, quiz_type: "chapter", title: input.title, description: input.description ?? null },
+    {
+      course_id: courseId,
+      chapter_id: chapterId,
+      quiz_type: "chapter",
+      title: input.title,
+      description: input.description ?? null,
+      pass_score: input.passScore ?? 70,
+    },
     input.questions,
   );
+}
+
+export async function deleteChapterQuiz(chapterId: string): Promise<boolean> {
+  const existing = await getQuizByChapterId(chapterId);
+  if (!existing) return false;
+  const { error } = await supabaseAdmin.from("quizzes").delete().eq("id", existing.id);
+  if (error) throw error;
+  return true;
 }
 
 export interface QuizAnswerInput {
@@ -250,6 +278,20 @@ export async function ensureQuizForCourse(courseId: string, defaultTitle: string
   const { data, error } = await supabaseAdmin
     .from("quizzes")
     .insert({ course_id: courseId, chapter_id: null, quiz_type: "course", title: defaultTitle, description: null })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Quiz;
+}
+
+// CSVインポート用(章テスト版)。対象の章にテストがまだ無い場合は仮タイトル・合格点70で新規作成する
+export async function ensureChapterQuiz(courseId: string, chapterId: string, defaultTitle: string): Promise<Quiz> {
+  const existing = await getQuizByChapterId(chapterId);
+  if (existing) return existing;
+
+  const { data, error } = await supabaseAdmin
+    .from("quizzes")
+    .insert({ course_id: courseId, chapter_id: chapterId, quiz_type: "chapter", title: defaultTitle, description: null, pass_score: 70 })
     .select("*")
     .single();
   if (error) throw error;
