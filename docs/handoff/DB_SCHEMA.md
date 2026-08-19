@@ -306,7 +306,7 @@ zipアップロードで受け取ったSCORM/LearnWizパッケージをSupabase 
 | `supabase/migrations/20260710000001_add_lesson_content_upload.sql` | `lessons.content_type`に`'learnwiz'`追加、`scorm_version`カラム追加 | 適用済み（2026-07-14ユーザー確認） |
 | `supabase/migrations/20260730000001_add_course_limited_access.sql` | `courses.is_limited`カラム追加（グループ限定公開） | 適用済み（2026-07-30ユーザー確認） |
 | `supabase/migrations/20260819000001_add_chapter_quiz.sql` | `quizzes.quiz_type`/`chapter_id`追加、`UNIQUE(course_id)`を部分UNIQUEインデックス2本に置換、`courses.has_final_quiz`カラム追加（章ごとの小テスト機能） | 適用済み（2026-08-19ユーザー確認） |
-| `supabase/migrations/20260819000002_add_quiz_pass_score.sql` | `quizzes.pass_score`カラム追加（章テストごとの個別合格点） | 適用待ち（ユーザーによるSupabase側での適用待ち） |
+| `supabase/migrations/20260819000002_add_quiz_pass_score.sql` | `quizzes.pass_score`カラム追加（章テストごとの個別合格点） | 適用済み（2026-08-19ユーザー確認） |
 
 ## テーブル間のリレーション概要
 - `public.users.id` → `auth.users.id`（Supabase Auth管理のユーザーとアプリ用プロフィールを1:1で紐付け）
