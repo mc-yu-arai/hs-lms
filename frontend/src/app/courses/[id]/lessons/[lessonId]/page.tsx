@@ -59,11 +59,19 @@ export default function LessonViewerPage() {
       .catch(() => undefined);
   }, [user, authFetch, courseId]);
 
-  const allLessons = useMemo(() => detail?.chapters.flatMap((chapter) => chapter.lessons) ?? [], [detail]);
-  const currentIndex = allLessons.findIndex((l) => l.id === lessonId);
-  const lesson: LessonSummary | null = currentIndex >= 0 ? allLessons[currentIndex] : null;
-  const prevLesson = currentIndex > 0 ? allLessons[currentIndex - 1] : null;
-  const nextLesson = currentIndex >= 0 && currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
+  // 章ロック機能: 次のレッスンが別の章に属し、かつその章がロック中の場合は遷移させず、
+  // 代わりに現在の章の小テストへの導線を出す必要があるため、レッスンと同時にその所属章も保持しておく
+  const lessonEntries = useMemo(
+    () => detail?.chapters.flatMap((chapter) => chapter.lessons.map((l) => ({ lesson: l, chapter }))) ?? [],
+    [detail],
+  );
+  const currentIndex = lessonEntries.findIndex((e) => e.lesson.id === lessonId);
+  const lesson: LessonSummary | null = currentIndex >= 0 ? lessonEntries[currentIndex].lesson : null;
+  const currentChapter = currentIndex >= 0 ? lessonEntries[currentIndex].chapter : null;
+  const prevLesson = currentIndex > 0 ? lessonEntries[currentIndex - 1].lesson : null;
+  const nextEntry = currentIndex >= 0 && currentIndex < lessonEntries.length - 1 ? lessonEntries[currentIndex + 1] : null;
+  const nextLesson = nextEntry?.lesson ?? null;
+  const isNextChapterLocked = nextEntry?.chapter.isLocked ?? false;
   const lessonProgress = progress?.lessons.find((l) => l.lessonId === lessonId) ?? null;
 
   const saveProgress = useCallback(
@@ -197,7 +205,7 @@ export default function LessonViewerPage() {
           )}
         </section>
 
-        <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
           {prevLesson ? (
             <a
               href={`/courses/${courseId}/lessons/${prevLesson.id}`}
@@ -208,7 +216,7 @@ export default function LessonViewerPage() {
           ) : (
             <span />
           )}
-          {nextLesson && (
+          {nextLesson && !isNextChapterLocked && (
             <a
               href={`/courses/${courseId}/lessons/${nextLesson.id}`}
               className="rounded-md border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:px-4"
@@ -217,6 +225,23 @@ export default function LessonViewerPage() {
             </a>
           )}
         </div>
+
+        {/* 次のレッスンが別の章にあり、かつその章がロック中の場合: 章ロックの判定ルール上、
+            現在アクセスできている(=ロックされていない)章の小テストが未合格であることが確定しているため、
+            この章の小テストへの導線を案内する(遷移させない代わりの動線) */}
+        {nextLesson && isNextChapterLocked && (
+          <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            <p className="mb-2">🔒 次の章は、この章の小テストに合格すると解放されます。</p>
+            {currentChapter && (
+              <a
+                href={`/courses/${courseId}/chapters/${currentChapter.id}/quiz`}
+                className="inline-block rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                章テストを受ける
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </main>
   );
