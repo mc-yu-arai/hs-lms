@@ -1,0 +1,18 @@
+無料で使えるもの
+
+ScormHero ? Web上でPPT/動画をアップロードするとSCORM 1.2/2004パッケージを生成。無料プランは1ファイル100MBまで、1日3回の変換制限あり
+SimpliTrain ? サインアップ不要でPPT/PPTXをSCORM 1.2/2004に変換。Moodle・Canvasなど主要LMS対応
+Teachfloor ? PPTをアップロードするとSCORMパッケージをメールで受け取れる、ブラウザ完結型
+Scormate ? Moodle/Canvas/Blackboard向けにPPTをSCORM化する無料ツール
+iSpring（Free PPT to SCORM Converter） ? iSpring社が提供する無料コンバーター
+いずれもクラウド完結でインストール不要、SCORM 1.2/2004両対応が一般的なようです。ただし無料プランはファイルサイズや変換回数に制限があることが多いので、実際に使う分量次第では有料プランの検討が必要かもしれません。
+
+HS-LMSのPOST /v1/uploads/lesson-contentはSCORM 1.2/2004どちらもimsmanifest.xmlの<schemaversion>から自動判定する実装なので、これらのツールで生成したzipをそのままアップロードUIから取り込めるはずです。
+
+Sources:
+
+Convert PowerPoint to SCORM Free: Best Tools 2026
+Free PPT to SCORM Converter | Convert PowerPoint to SCORM Online : SimpliTrain
+Convert PowerPoint to SCORM: Best Free Tools and Techniques for Converting - Teachfloor Blog
+Free PowerPoint to SCORM Converter | Scormate for LMS
+Free PPT to SCORM Converter | Convert PowerPoint to SCORM Online : SimpliTrain
