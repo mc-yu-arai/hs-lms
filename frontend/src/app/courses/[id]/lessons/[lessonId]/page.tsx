@@ -158,6 +158,28 @@ export default function LessonViewerPage() {
     );
   }
 
+  // 章ロック機能: コース詳細画面・前後レッスンの遷移リンクではロック中のレッスンへのリンク自体を
+  // 出していないが、直接URLを開いた場合(ブックマーク・履歴からの再訪問・URL直打ち等)は
+  // このページ単体でも到達しうる。サーバー側はコンテンツを返さず(contentUrl/contentBodyがnull)
+  // 進捗更新も403 chapter_lockedで拒否するため実害は無いが、フロントでも早い段階で明示的に
+  // ブロックしないと「本文が設定されていません」という中身の問題に見える紛らわしい表示になり、
+  // 実際に本番でその状態から「進めてしまえるように見える」という報告があったため対応した。
+  if (currentChapter?.isLocked) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow-sm">
+          <div className="mb-3 text-3xl">🔒</div>
+          <p className="mb-4 text-sm text-gray-700">
+            この章はロックされています。前の章の小テストに合格すると解放されます。
+          </p>
+          <a href={`/courses/${courseId}`} className="text-sm text-blue-600 hover:underline">
+            コース詳細に戻る
+          </a>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
