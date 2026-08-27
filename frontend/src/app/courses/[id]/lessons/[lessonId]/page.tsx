@@ -530,25 +530,31 @@ function FullscreenIframe({ src, title }: { src: string; title: string }) {
       ref={containerRef}
       className={
         isFullscreen && isFallback
-          ? "fixed inset-0 z-50 h-[100dvh] w-screen bg-black"
-          : "relative h-[75vh] w-full max-w-full"
+          ? "fixed inset-0 z-50 flex h-[100dvh] w-screen flex-col bg-black"
+          : "flex h-[75vh] w-full max-w-full flex-col"
       }
     >
+      {/* 全画面ボタンはiframeの上に重ねず、専用のツールバー行に配置する。
+          SCORM/LearnWizパッケージ自身が右上に進捗バー等のUIを描画するケースがあり、
+          以前はabsolute配置でiframeの上に重ねていたため、そのUIと衝突して隠れてしまっていた。
+          パッケージごとに自前UIの位置は異なり得るため、重ならない専用の領域を設けるのが確実。 */}
+      <div className={`mb-1 flex justify-end ${isFullscreen && isFallback ? "px-2 pt-2" : ""}`}>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? "全画面表示を終了" : "全画面表示"}
+          className="flex items-center gap-1.5 rounded-md bg-gray-800/80 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-gray-800"
+        >
+          {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
+          <span className="hidden sm:inline">{isFullscreen ? "全画面終了" : "全画面"}</span>
+        </button>
+      </div>
       <iframe
         ref={iframeRef}
         src={src}
         title={title}
-        className="h-full w-full rounded-lg border border-gray-200 bg-white"
+        className="w-full min-h-0 flex-1 rounded-lg border border-gray-200 bg-white"
       />
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        aria-label={isFullscreen ? "全画面表示を終了" : "全画面表示"}
-        className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-black/75"
-      >
-        {isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />}
-        <span className="hidden sm:inline">{isFullscreen ? "全画面終了" : "全画面"}</span>
-      </button>
     </div>
   );
 }
