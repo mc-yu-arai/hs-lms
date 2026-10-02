@@ -5,7 +5,7 @@ import { asyncHandler } from "../middleware/errorHandler";
 import { passwordResetRateLimiter } from "../middleware/rateLimit";
 import { supabaseAdmin } from "../lib/supabase";
 import { findUserByEmail } from "../services/userRepository";
-import { sendEmail } from "../lib/resend";
+import { sendEmail } from "../lib/mailer";
 import { updatePassword } from "../lib/gotrueRest";
 
 export const passwordResetRouter = Router();
@@ -39,7 +39,7 @@ passwordResetRouter.post(
 <p>このリクエストに心当たりがない場合は、本メールを破棄してください。</p>`,
           );
         } catch (sendError) {
-          // メール送信基盤の障害（Resendのサンドボックス制限など）をクライアントに
+          // メール送信基盤の障害（Gmail送信制限・一時的な接続エラーなど）をクライアントに
           // そのまま露出すると挙動の違いからメールアドレスの存在有無が漏れるため、
           // ここで握りつぶしてサーバー側にのみ記録し、レスポンスは常に同じ成功にする。
           console.error("パスワードリセットメールの送信に失敗しました:", sendError);

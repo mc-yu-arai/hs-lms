@@ -14,8 +14,10 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
-  RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM_EMAIL: z.string().optional(),
+  // Gmail SMTP（Nodemailer）でのメール送信に使用。2段階認証を有効化した上で発行した
+  // 「アプリパスワード」を使うこと（通常のGoogleアカウントのログインパスワードは使えない）
+  GMAIL_USER: z.string().email().optional(),
+  GMAIL_APP_PASSWORD: z.string().optional(),
   API_BASE_URL: z.string().url().default("http://localhost:3001"),
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),

@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase";
-import { sendEmail } from "../lib/resend";
+import { sendEmail } from "../lib/mailer";
 import { env } from "../config/env";
 import { generateRandomPassword } from "../lib/password";
 import { parseCsv } from "../lib/csv";

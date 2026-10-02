@@ -1,5 +1,11 @@
 import request from "supertest";
 
+const sendMailMock = jest.fn(async () => ({ messageId: "test" }));
+
+jest.mock("nodemailer", () => ({
+  createTransport: jest.fn(() => ({ sendMail: sendMailMock })),
+}));
+
 jest.mock("../src/lib/supabase", () => {
   const { createFakeDb } = require("./helpers/fakeSupabase");
   const fakeDb = createFakeDb();
@@ -108,7 +114,8 @@ beforeEach(() => {
   }
   createUserMock.mockClear();
   deleteUserMock.mockClear();
-  (global as any).fetch = jest.fn(async () => ({ ok: true, text: async () => "", json: async () => ({}) }));
+  sendMailMock.mockReset();
+  sendMailMock.mockResolvedValue({ messageId: "test" });
 });
 
 describe("POST /v1/users", () => {
@@ -134,7 +141,7 @@ describe("POST /v1/users", () => {
     expect(res.status).toBe(201);
     expect(res.body.user).toMatchObject({ lastName: "鈴木", firstName: "花子", email: "suzuki@example.com", role: "learner" });
     expect(createUserMock).toHaveBeenCalledWith(expect.objectContaining({ email: "suzuki@example.com", email_confirm: true }));
-    expect(global.fetch).toHaveBeenCalled();
+    expect(sendMailMock).toHaveBeenCalled();
     expect(fakeDb.store.get("users")).toHaveLength(2);
   });
 

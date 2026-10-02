@@ -11,8 +11,8 @@
 | SUPABASE_SECRET_KEY | ✅ 設定済み（バックエンド専用・厳秘） | 同上 |
 | JWT_SECRET | ✅ 設定済み | ランダム生成済み |
 | GOOGLE_CLIENT_ID / SECRET | ✅ 設定済み | Google Cloud Console |
-| RESEND_API_KEY | ✅ 設定済み（2026-07-01実キーに更新） | Resendダッシュボード → API Keys |
-| RESEND_FROM_EMAIL | ⚠️ テスト用ドメイン(`onboarding@resend.dev`)のまま | 本番移行時に自社ドメインへ変更 |
+| GMAIL_USER | ✅ 設定済み | 送信用Googleアカウントのメールアドレス |
+| GMAIL_APP_PASSWORD | ✅ 設定済み | 当該アカウントの「アプリパスワード」（2段階認証有効化後に発行） |
 
 ## 未取得・要確認のクレデンシャル
 - なし（主要なクレデンシャルはすべて設定済み）
@@ -20,7 +20,7 @@
 ## 外部サービス設定状況
 - Supabase: プロジェクト作成済み・接続情報取得済み。マイグレーション2本とも適用済み（`supabase/migrations/`）
 - Google OAuth: クライアントID/シークレットは`.env`に設定済みだが、**Supabaseダッシュボード側でのGoogle Provider有効化・Redirect URL登録がまだ**（下記参照）
-- Resend: 実キー設定済み。パスワードリセットメールはSupabaseのメール設定を経由せず、バックエンドから直接Resend APIを呼んで送信している（`backend/src/lib/resend.ts`）
+- メール送信: Supabaseのメール設定を経由せず、バックエンドからNodemailer経由でGmailのSMTPへ直接送信している（`backend/src/lib/mailer.ts`）。GMAIL_USERで指定したGoogleアカウントで2段階認証を有効化し、発行した「アプリパスワード」をGMAIL_APP_PASSWORDに設定すること（通常のログインパスワードは使用不可）。送信元は常にGMAIL_USERのアドレスになる。無料Gmailの送信上限は目安1日500通程度
 
 ## Supabaseダッシュボードで手動設定が必要な項目
 1. Authentication → Providers → Google を有効化し、`.env`と同じClient ID/Secretを登録

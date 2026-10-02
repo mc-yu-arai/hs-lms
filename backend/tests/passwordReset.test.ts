@@ -8,6 +8,11 @@ type MockUser = {
 
 const usersById = new Map<string, MockUser>();
 const generateLinkMock = jest.fn();
+const sendMailMock = jest.fn(async () => ({ messageId: "test" }));
+
+jest.mock("nodemailer", () => ({
+  createTransport: jest.fn(() => ({ sendMail: sendMailMock })),
+}));
 
 jest.mock("../src/lib/supabase", () => ({
   supabaseAuth: { auth: { signInWithPassword: jest.fn() } },
@@ -39,7 +44,8 @@ describe("POST /v1/auth/password/reset", () => {
   beforeEach(() => {
     usersById.clear();
     generateLinkMock.mockReset();
-    (global as any).fetch = jest.fn(async () => ({ ok: true, text: async () => "", json: async () => ({}) }));
+    sendMailMock.mockReset();
+    sendMailMock.mockResolvedValue({ messageId: "test" });
   });
 
   it("returns the same generic success message for an unknown email (no enumeration)", async () => {
@@ -49,10 +55,10 @@ describe("POST /v1/auth/password/reset", () => {
 
     expect(res.status).toBe(200);
     expect(generateLinkMock).not.toHaveBeenCalled();
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 
-  it("generates a recovery link and sends it via Resend for a known active user", async () => {
+  it("generates a recovery link and sends it via Gmail SMTP for a known active user", async () => {
     generateLinkMock.mockResolvedValue({ data: { properties: { action_link: "https://project.supabase.co/auth/v1/verify?token=abc&type=recovery" } }, error: null });
     const user = makeUser({});
 
@@ -62,15 +68,14 @@ describe("POST /v1/auth/password/reset", () => {
 
     expect(res.status).toBe(200);
     expect(generateLinkMock).toHaveBeenCalledWith(expect.objectContaining({ type: "recovery", email: user.email }));
-    expect(global.fetch).toHaveBeenCalledWith(
-      "https://api.resend.com/emails",
-      expect.objectContaining({ method: "POST" }),
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: user.email }),
     );
   });
 
-  it("still returns 200 when the email provider rejects the send (e.g. Resend sandbox restriction)", async () => {
+  it("still returns 200 when the email provider rejects the send (e.g. Gmail SMTP failure)", async () => {
     generateLinkMock.mockResolvedValue({ data: { properties: { action_link: "https://project.supabase.co/auth/v1/verify?token=abc&type=recovery" } }, error: null });
-    (global as any).fetch = jest.fn(async () => ({ ok: false, status: 403, text: async () => "sandbox restriction" }));
+    sendMailMock.mockRejectedValue(new Error("SMTP connection refused"));
     const user = makeUser({});
 
     const res = await request(createApp())

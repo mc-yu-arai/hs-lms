@@ -1,5 +1,11 @@
 import request from "supertest";
 
+const sendMailMock = jest.fn(async () => ({ messageId: "test" }));
+
+jest.mock("nodemailer", () => ({
+  createTransport: jest.fn(() => ({ sendMail: sendMailMock })),
+}));
+
 jest.mock("../src/lib/supabase", () => {
   const { createFakeDb } = require("./helpers/fakeSupabase");
   const fakeDb = createFakeDb();
@@ -91,7 +97,8 @@ beforeEach(() => {
   for (const t of ["users", "courses", "enrollments", "notification_settings", "notification_logs", "chapters", "lessons"]) {
     fakeDb.store.set(t, []);
   }
-  (global as any).fetch = jest.fn(async () => ({ ok: true, text: async () => "", json: async () => ({}) }));
+  sendMailMock.mockReset();
+  sendMailMock.mockResolvedValue({ messageId: "test" });
 });
 
 describe("GET/PUT /v1/admin/notification-settings", () => {
@@ -183,11 +190,11 @@ describe("POST /v1/admin/notifications/send-reminders", () => {
 
     const res = await request(createApp()).post("/v1/admin/notifications/send-reminders").set(authHeader(admin));
     expect(res.body.result).toMatchObject({ sent: 0, skipped: 0, failed: 0 });
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 
   it("records a failure when the email provider rejects the send", async () => {
-    (global as any).fetch = jest.fn(async () => ({ ok: false, status: 500, text: async () => "boom" }));
+    sendMailMock.mockRejectedValue(new Error("SMTP connection refused"));
     const admin = makeUser({ role: "admin" });
     const learner = makeUser({ role: "learner" });
     const course = makeCourseRow({});

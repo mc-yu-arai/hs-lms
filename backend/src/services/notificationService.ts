@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase";
-import { sendEmail } from "../lib/resend";
+import { sendEmail } from "../lib/mailer";
 import { getCourseById } from "./courseRepository";
 import { findUserById } from "./userRepository";
 import {
