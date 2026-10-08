@@ -21,6 +21,12 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 export function createApp() {
   const app = express();
 
+  // Render等のホスティング環境では、リバースプロキシ(ロードバランサー)が1段挟まる。
+  // 未設定だと req.ip が常にプロキシのIPになり、レート制限(IP単位)が全利用者の合計で
+  // 数えられてしまう。X-Forwarded-For の末尾1段(=プロキシが記録した接続元)のみ信用する。
+  // 数値を大きくすると利用者がヘッダーを偽装してレート制限を回避できるため、段数は実構成と一致させること。
+  app.set("trust proxy", 1);
+
   app.use(helmet());
   app.use(
     cors({
