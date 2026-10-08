@@ -7,5 +7,3 @@ process.env.FRONTEND_URL = "http://localhost:3000";
 process.env.NODE_ENV = "test";
 process.env.LOGIN_MAX_ATTEMPTS = "5";
 process.env.LOGIN_LOCK_MINUTES = "15";
-process.env.GMAIL_USER = "test-sender@example.com";
-process.env.GMAIL_APP_PASSWORD = "test-app-password";

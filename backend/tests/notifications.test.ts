@@ -1,9 +1,9 @@
 import request from "supertest";
 
-const sendMailMock = jest.fn(async () => ({ messageId: "test" }));
+const sendMailMock = jest.fn(async (_msg?: { to: string; subject: string; html: string }) => ({ messageId: "test" }));
 
-jest.mock("nodemailer", () => ({
-  createTransport: jest.fn(() => ({ sendMail: sendMailMock })),
+jest.mock("../src/lib/mailer", () => ({
+  sendEmail: (to: string, subject: string, html: string) => sendMailMock({ to, subject, html }),
 }));
 
 jest.mock("../src/lib/supabase", () => {
